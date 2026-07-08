@@ -1,61 +1,85 @@
 {
-  "lecture_title": "Understanding Cars: Mechanics and Dynamics",
-  "nodes": [
-    {
-      "id": "node_1",
-      "label": "The Internal Combustion Engine",
-      "type": "main_topic",
-      "summary": "The heart of the vehicle; its core architecture, cylinder configuration, and displacement directly dictate the car's power, efficiency, and overall performance characteristics."
-    },
-    {
-      "id": "node_2",
-      "label": "Essential Supporting Systems",
-      "type": "sub_topic",
-      "summary": "An engine cannot survive alone. Vital sub-systems—like cooling, lubrication, and electrical—work continuously behind the scenes to prevent catastrophic failure and keep the vehicle running smoothly."
-    },
-    {
-      "id": "node_3",
-      "label": "Fuel Dynamics & Selection",
-      "type": "note",
-      "summary": "Engines are precision-engineered for specific fuel types (gasoline, diesel, or hybrid blends). Introducing the wrong fuel type can lead to severe, irreversible engine damage."
-    },
-    {
-      "id": "node_4",
-      "label": "The Transmission System",
-      "type": "sub_topic",
-      "summary": "The critical bridge between raw engine power and the wheels. It manages gear ratios to ensure the engine operates within its optimal RPM range across varying speeds."
-    },
-    {
-      "id": "node_5",
-      "label": "Maintenance & Longevity",
-      "type": "insight",
-      "summary": "Routine care—such as timely oil changes, filter replacements, and belt inspections—is the single most effective way to maximize a vehicle's lifespan and retain its resale value."
-    }
-  ],
-  "edges": [
-    {
-      "id": "edge_1",
-      "source": "node_1",
-      "target": "node_2",
-      "label": "sustains engine health"
-    },
-    {
-      "id": "edge_2",
-      "source": "node_2",
-      "target": "node_3",
-      "label": "influences system design"
-    },
-    {
-      "id": "edge_3",
-      "source": "node_1",
-      "target": "node_4",
-      "label": "transfers power to"
-    },
-    {
-      "id": "edge_4",
-      "source": "node_2",
-      "target": "node_5",
-      "label": "requires proactive"
-    }
-  ]
+"lecture_title": "How a Car Engine Works: Mechanics and Dynamics",
+"nodes": [
+{
+"id": "node_1",
+"label": "The Four-Stroke Engine Cycle",
+"type": "main_topic",
+"summary": "The core operational cycle of an internal combustion engine, consisting of intake, compression, power, and exhaust strokes to translate fuel combustion into mechanical energy."
+},
+{
+"id": "node_2",
+"label": "Engine Block and Head Structure",
+"type": "sub_topic",
+"summary": "The structural foundation of the engine split into a lower block holding pistons and the crankshaft, and an upper head housing the valves, ports, and ignition systems."
+},
+{
+"id": "node_3",
+"label": "Engine Configurations and Sizes",
+"type": "sub_topic",
+"summary": "Cylinders are arranged in inline, V-shape, or flat/boxer layouts, with displacement measuring the total cylinder volume in liters to dictate baseline engine power."
+},
+{
+"id": "node_4",
+"label": "Torque versus Horsepower",
+"type": "insight",
+"summary": "Torque represents the actual physical rotational strength of the crankshaft measured in pound-feet, whereas horsepower is a calculated value of torque multiplied by engine RPM over time."
+},
+{
+"id": "node_5",
+"label": "Essential Supporting Sub-Systems",
+"type": "main_topic",
+"summary": "Critical auxiliary pipelines including air intake, pressurized fuel delivery, liquid cooling, electrical charging/ignition, and continuous oil lubrication that prevent mechanical failure."
+},
+{
+"id": "node_6",
+"label": "Valvetrain Mechanics & Variable Timing",
+"type": "main_topic",
+"summary": "The breathing apparatus of the engine where camshafts actuate intake and exhaust valves, optimized dynamically across RPM bands via smart timing adjustment systems like VVT-i."
+},
+{
+"id": "node_7",
+"label": "Atkinson Cycle Engine Design",
+"type": "note",
+"summary": "An efficiency-focused combustion method that leaves intake valves open during early compression to minimize pumping energy losses, commonly paired with hybrid electric motors."
+}
+],
+"edges": [
+{
+"id": "edge_1",
+"source": "node_1",
+"target": "node_2",
+"label": "contained within"
+},
+{
+"id": "edge_2",
+"source": "node_2",
+"target": "node_3",
+"label": "defines layout of"
+},
+{
+"id": "edge_3",
+"source": "node_3",
+"target": "node_4",
+"label": "directly influences"
+},
+{
+"id": "edge_4",
+"source": "node_1",
+"target": "node_5",
+"label": "sustained by"
+},
+{
+"id": "edge_5",
+"source": "node_2",
+"target": "node_6",
+"label": "houses the"
+},
+{
+"id": "edge_6",
+"source": "node_6",
+"target": "node_7",
+"label": "modified to run"
+}
+]
 }
