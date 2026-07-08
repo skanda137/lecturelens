@@ -1,0 +1,61 @@
+{
+  "lecture_title": "Understanding Cars: Mechanics and Dynamics",
+  "nodes": [
+    {
+      "id": "node_1",
+      "label": "The Internal Combustion Engine",
+      "type": "main_topic",
+      "summary": "The heart of the vehicle; its core architecture, cylinder configuration, and displacement directly dictate the car's power, efficiency, and overall performance characteristics."
+    },
+    {
+      "id": "node_2",
+      "label": "Essential Supporting Systems",
+      "type": "sub_topic",
+      "summary": "An engine cannot survive alone. Vital sub-systems—like cooling, lubrication, and electrical—work continuously behind the scenes to prevent catastrophic failure and keep the vehicle running smoothly."
+    },
+    {
+      "id": "node_3",
+      "label": "Fuel Dynamics & Selection",
+      "type": "note",
+      "summary": "Engines are precision-engineered for specific fuel types (gasoline, diesel, or hybrid blends). Introducing the wrong fuel type can lead to severe, irreversible engine damage."
+    },
+    {
+      "id": "node_4",
+      "label": "The Transmission System",
+      "type": "sub_topic",
+      "summary": "The critical bridge between raw engine power and the wheels. It manages gear ratios to ensure the engine operates within its optimal RPM range across varying speeds."
+    },
+    {
+      "id": "node_5",
+      "label": "Maintenance & Longevity",
+      "type": "insight",
+      "summary": "Routine care—such as timely oil changes, filter replacements, and belt inspections—is the single most effective way to maximize a vehicle's lifespan and retain its resale value."
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge_1",
+      "source": "node_1",
+      "target": "node_2",
+      "label": "sustains engine health"
+    },
+    {
+      "id": "edge_2",
+      "source": "node_2",
+      "target": "node_3",
+      "label": "influences system design"
+    },
+    {
+      "id": "edge_3",
+      "source": "node_1",
+      "target": "node_4",
+      "label": "transfers power to"
+    },
+    {
+      "id": "edge_4",
+      "source": "node_2",
+      "target": "node_5",
+      "label": "requires proactive"
+    }
+  ]
+}
