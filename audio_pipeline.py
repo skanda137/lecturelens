@@ -38,13 +38,9 @@ def get_transcript_from_audio(audio_file_path: str) -> str:
         print(f"Error during audio transcription: {e}")
         raise e
 
-
-# =====================================================================
-# TEST EXECUTION BLOCK
-# =====================================================================
 if __name__ == "__main__":
     # 1. PASTE YOUR KEY HERE (Replace the text inside the quotes with your dg_... key)
-    os.environ["DEEPGRAM_API_KEY"] = "68f85b276a02b50d3a2894a16c6f9eb73cfcab74"
+    os.environ["DEEPGRAM_API_KEY"] = "DEEPGRAM_API_KEY"
     
     # 2. File verification and execution
     TEST_AUDIO_PATH = r"C:\Users\Aakarsh\Desktop\lecturelens\sample-speech-5m.mp3" 
