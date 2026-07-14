@@ -12,6 +12,12 @@ class MindMapNode(BaseModel):
     type: Literal["main_topic", "sub_topic", "note", "insight"] = Field(
         description="The category classification of the concept node"
     )
+    color_theme: str = Field(
+        description="A Tailwind CSS color class suitable for this node type, e.g., 'bg-blue-500' for main, 'bg-emerald-500' for insights"
+    )
+    hierarchy_level: int = Field(
+        description="The depth level in the mind map hierarchy (0 for main_topic, 1 for sub_topic, 2 for details)"
+    )
     summary: str = Field(description="1-2 highly descriptive sentences explaining the concept clearly")
 
 # 2. Define the structure for a single Edge 
