@@ -1,0 +1,253 @@
+// ─── Lecture JSON import ───────────────────────────────────────────────────
+// Converts the LectureLens extraction schema (what the transcription/LLM
+// pipeline produces) into the shapes MiniMindMap / MindMapPage already
+// consume: MindNode[] + Edge[] with x/y positions.
+
+export type LectureNodeType = "main_topic" | "sub_topic" | "note" | "insight";
+
+export interface LectureJSONNode {
+  id: string;
+  label: string;
+  type: LectureNodeType;
+  summary: string;
+}
+
+export interface LectureJSONEdge {
+  id: string;
+  source: string;
+  target: string;
+  label?: string;
+}
+
+export interface LectureJSON {
+  lecture_title: string;
+  nodes: LectureJSONNode[];
+  edges: LectureJSONEdge[];
+}
+
+// ─── Backend integration ───────────────────────────────────────────────────
+// Talks to the FastAPI service in app.py (see /process-audio and friends).
+
+const API_BASE_URL = (import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000").replace(/\/$/, "");
+
+async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    headers: init?.body && !(init.body instanceof FormData) ? { "Content-Type": "application/json" } : undefined,
+    ...init,
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail || `Request failed with status ${response.status}`);
+  }
+
+  if (response.status === 204) return undefined as T;
+  return response.json();
+}
+
+export interface LectureJSONNodeSaved extends LectureJSONNode {
+  bookmarked: boolean;
+  notes: string | null;
+}
+
+export interface LectureDetail {
+  id: string;
+  lecture_title: string;
+  created_at: string;
+  duration_seconds: number | null;
+  nodes: LectureJSONNodeSaved[];
+  edges: LectureJSONEdge[];
+}
+
+export interface LectureSummary {
+  id: string;
+  title: string;
+  created_at: string;
+  duration_seconds: number | null;
+  node_count: number;
+}
+
+export interface Stats {
+  total_lectures: number;
+  total_nodes: number;
+  total_hours: number;
+  weekly_hours: number;
+  streak_days: number;
+  lectures_per_day: { date: string; count: number }[];
+  node_type_breakdown: { type: LectureNodeType; count: number }[];
+}
+
+export interface BookmarkEntry {
+  node_id: string;
+  type: LectureNodeType;
+  label: string;
+  summary: string;
+  notes: string | null;
+  lecture_id: string;
+  lecture_title: string;
+}
+
+/** Uploads an audio/video file to the LectureLens API and returns the extracted mind map. */
+export async function processLectureAudio(file: File, durationSeconds?: number): Promise<LectureJSON & { id: string }> {
+  const formData = new FormData();
+  formData.append("file", file);
+  if (durationSeconds != null && Number.isFinite(durationSeconds)) {
+    formData.append("duration_seconds", String(durationSeconds));
+  }
+
+  return apiFetch<LectureJSON & { id: string }>("/process-audio", { method: "POST", body: formData });
+}
+
+export function listLectures(): Promise<LectureSummary[]> {
+  return apiFetch<LectureSummary[]>("/lectures");
+}
+
+export function getLecture(id: string): Promise<LectureDetail> {
+  return apiFetch<LectureDetail>(`/lectures/${encodeURIComponent(id)}`);
+}
+
+export function deleteLecture(id: string): Promise<void> {
+  return apiFetch<void>(`/lectures/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export function updateNode(
+  lectureId: string,
+  nodeId: string,
+  patch: { bookmarked?: boolean; notes?: string }
+): Promise<LectureJSONNodeSaved> {
+  return apiFetch<LectureJSONNodeSaved>(
+    `/lectures/${encodeURIComponent(lectureId)}/nodes/${encodeURIComponent(nodeId)}`,
+    { method: "PATCH", body: JSON.stringify(patch) }
+  );
+}
+
+export function getStats(): Promise<Stats> {
+  return apiFetch<Stats>("/stats");
+}
+
+export function listBookmarks(): Promise<BookmarkEntry[]> {
+  return apiFetch<BookmarkEntry[]>("/bookmarks");
+}
+
+// App-internal shapes (mirrors the types declared in App.tsx)
+export type AppNodeType = "main" | "subtopic" | "example" | "definition" | "question" | "important" | "note" | "insight";
+
+export interface AppMindNode {
+  id: string;
+  type: AppNodeType;
+  title: string;
+  summary: string;
+  x: number;
+  y: number;
+  parentId?: string;
+  timestamp: number;
+  bookmarked?: boolean;
+  notes?: string | null;
+  transcriptSnippet?: string;
+}
+
+export interface AppEdge {
+  id: string;
+  source: string;
+  target: string;
+}
+
+const TYPE_MAP: Record<LectureNodeType, AppNodeType> = {
+  main_topic: "main",
+  sub_topic: "subtopic",
+  note: "note",
+  insight: "insight",
+};
+
+const LEVEL_X_STEP = 260;
+const ROW_Y_STEP = 140;
+const START_X = 240;
+const CENTER_Y = 280;
+
+/**
+ * Turns raw extraction JSON into positioned nodes + edges.
+ * Layout: BFS from root node(s) (nodes with no incoming edge) so each
+ * level of the graph becomes a column, matching how MiniMindMap expects
+ * nodes to be laid out (parentId + x/y).
+ */
+export function lectureJsonToGraph(json: LectureJSON): { nodes: AppMindNode[]; edges: AppEdge[] } {
+  const incoming = new Set(json.edges.map(e => e.target));
+  const roots = json.nodes.filter(n => !incoming.has(n.id));
+  const rootIds = roots.length ? roots.map(r => r.id) : [json.nodes[0]?.id].filter(Boolean) as string[];
+
+  const childrenOf = new Map<string, string[]>();
+  const parentOf = new Map<string, string>();
+  json.edges.forEach(e => {
+    childrenOf.set(e.source, [...(childrenOf.get(e.source) ?? []), e.target]);
+    if (!parentOf.has(e.target)) parentOf.set(e.target, e.source);
+  });
+
+  const level = new Map<string, number>();
+  const queue: string[] = [...rootIds];
+  rootIds.forEach(id => level.set(id, 0));
+  while (queue.length) {
+    const id = queue.shift()!;
+    const depth = level.get(id) ?? 0;
+    for (const childId of childrenOf.get(id) ?? []) {
+      if (!level.has(childId)) {
+        level.set(childId, depth + 1);
+        queue.push(childId);
+      }
+    }
+  }
+  // Any node unreachable from a root (disconnected) still gets placed.
+  json.nodes.forEach(n => { if (!level.has(n.id)) level.set(n.id, 0); });
+
+  const byLevel = new Map<number, string[]>();
+  json.nodes.forEach(n => {
+    const lv = level.get(n.id) ?? 0;
+    byLevel.set(lv, [...(byLevel.get(lv) ?? []), n.id]);
+  });
+
+  const pos = new Map<string, { x: number; y: number }>();
+  byLevel.forEach((ids, lv) => {
+    const total = ids.length;
+    const startY = CENTER_Y - ((total - 1) * ROW_Y_STEP) / 2;
+    ids.forEach((id, i) => {
+      pos.set(id, { x: START_X + lv * LEVEL_X_STEP, y: startY + i * ROW_Y_STEP });
+    });
+  });
+
+  const nodes: AppMindNode[] = json.nodes.map((n, i) => {
+    const saved = n as Partial<LectureJSONNodeSaved>;
+    return {
+      id: n.id,
+      type: TYPE_MAP[n.type] ?? "note",
+      title: n.label,
+      summary: n.summary,
+      x: pos.get(n.id)?.x ?? START_X,
+      y: pos.get(n.id)?.y ?? CENTER_Y,
+      parentId: parentOf.get(n.id),
+      timestamp: i * 4,
+      bookmarked: saved.bookmarked,
+      notes: saved.notes,
+    };
+  });
+
+  const edges: AppEdge[] = json.edges.map(e => ({ id: e.id, source: e.source, target: e.target }));
+
+  return { nodes, edges };
+}
+
+// Sample dataset used for the "Try a sample lecture" flow on the Upload page.
+export const CARS_LECTURE: LectureJSON = {
+  lecture_title: "Understanding Cars: Mechanics and Dynamics",
+  nodes: [
+    { id: "node_1", label: "The Internal Combustion Engine", type: "main_topic", summary: "The heart of the vehicle; its core architecture, cylinder configuration, and displacement directly dictate the car's power, efficiency, and overall performance characteristics." },
+    { id: "node_2", label: "Essential Supporting Systems", type: "sub_topic", summary: "An engine cannot survive alone. Vital sub-systems\u2014like cooling, lubrication, and electrical\u2014work continuously behind the scenes to prevent catastrophic failure and keep the vehicle running smoothly." },
+    { id: "node_3", label: "Fuel Dynamics & Selection", type: "note", summary: "Engines are precision-engineered for specific fuel types (gasoline, diesel, or hybrid blends). Introducing the wrong fuel type can lead to severe, irreversible engine damage." },
+    { id: "node_4", label: "The Transmission System", type: "sub_topic", summary: "The critical bridge between raw engine power and the wheels. It manages gear ratios to ensure the engine operates within its optimal RPM range across varying speeds." },
+    { id: "node_5", label: "Maintenance & Longevity", type: "insight", summary: "Routine care\u2014such as timely oil changes, filter replacements, and belt inspections\u2014is the single most effective way to maximize a vehicle's lifespan and retain its resale value." },
+  ],
+  edges: [
+    { id: "edge_1", source: "node_1", target: "node_2", label: "sustains engine health" },
+    { id: "edge_2", source: "node_2", target: "node_3", label: "influences system design" },
+    { id: "edge_3", source: "node_1", target: "node_4", label: "transfers power to" },
+    { id: "edge_4", source: "node_2", target: "node_5", label: "requires proactive" },
+  ],
+};

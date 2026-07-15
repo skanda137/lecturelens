@@ -1,0 +1,13 @@
+.env
+.git
+.gitignore
+__pycache__/
+*.pyc
+lecturelens.db
+temp_*
+sample-speech-5m.mp3
+frontend/node_modules
+frontend/dist
+raw
+killer words
+example.json
