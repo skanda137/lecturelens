@@ -1,7 +1,3 @@
-// ─── Lecture JSON import ───────────────────────────────────────────────────
-// Converts the LectureLens extraction schema (what the transcription/LLM
-// pipeline produces) into the shapes MiniMindMap / MindMapPage already
-// consume: MindNode[] + Edge[] with x/y positions.
 
 export type LectureNodeType = "main_topic" | "sub_topic" | "note" | "insight";
 
@@ -25,8 +21,6 @@ export interface LectureJSON {
   edges: LectureJSONEdge[];
 }
 
-// ─── Backend integration ───────────────────────────────────────────────────
-// Talks to the FastAPI service in app.py (see /process-audio and friends).
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000").replace(/\/$/, "");
 
@@ -87,7 +81,6 @@ export interface BookmarkEntry {
   lecture_title: string;
 }
 
-/** Uploads an audio/video file to the LectureLens API and returns the extracted mind map. */
 export async function processLectureAudio(file: File, durationSeconds?: number): Promise<LectureJSON & { id: string }> {
   const formData = new FormData();
   formData.append("file", file);
@@ -134,7 +127,6 @@ export interface StudyQuestion {
   answer: string;
 }
 
-/** Lazily generates (once) and caches a set of study questions for a lecture. */
 export async function getStudyQuestions(lectureId: string): Promise<StudyQuestion[]> {
   const { questions } = await apiFetch<{ questions: StudyQuestion[] }>(
     `/lectures/${encodeURIComponent(lectureId)}/study`
@@ -142,7 +134,6 @@ export async function getStudyQuestions(lectureId: string): Promise<StudyQuestio
   return questions;
 }
 
-// App-internal shapes (mirrors the types declared in App.tsx)
 export type AppNodeType = "main" | "subtopic" | "example" | "definition" | "question" | "important" | "note" | "insight";
 
 export interface AppMindNode {
@@ -173,20 +164,11 @@ const TYPE_MAP: Record<LectureNodeType, AppNodeType> = {
   insight: "insight",
 };
 
-const LEVEL_X_STEP = 360; // gives edge-label boxes room between columns without overlapping node bodies
+const LEVEL_X_STEP = 360;
 const ROW_Y_STEP = 140;
 const START_X = 240;
 const CENTER_Y = 280;
 
-/**
- * Turns raw extraction JSON into positioned nodes + edges.
- * Layout: a tidy tree (root(s) at the left, branches fanning right). Each
- * node with children is centered over the vertical span of ITS OWN children,
- * computed bottom-up — not placed in a row shared with every other node at
- * the same depth. That per-parent centering is what makes it read as a tree
- * with branches instead of a diagonal cascade where unrelated siblings from
- * different parents end up sharing a column and their edges cross.
- */
 export function lectureJsonToGraph(json: LectureJSON): { nodes: AppMindNode[]; edges: AppEdge[] } {
   const incoming = new Set(json.edges.map(e => e.target));
   const roots = json.nodes.filter(n => !incoming.has(n.id));
@@ -219,7 +201,6 @@ export function lectureJsonToGraph(json: LectureJSON): { nodes: AppMindNode[]; e
   };
 
   rootIds.forEach(id => layout(id, 0));
-  // Any node unreachable from a root (disconnected / cyclic edge case) still gets placed.
   json.nodes.forEach(n => {
     if (!placed.has(n.id)) {
       pos.set(n.id, { x: START_X, y: leafCursor * ROW_Y_STEP });
@@ -227,9 +208,6 @@ export function lectureJsonToGraph(json: LectureJSON): { nodes: AppMindNode[]; e
     }
   });
 
-  // Shift the tree down so the topmost node sits at a fixed margin — never centered
-  // around CENTER_Y, which for a tall tree pushed the top rows to negative y and off
-  // the visible canvas (that's what was clipping edges/labels near the top).
   const allY = [...pos.values()].map(p => p.y);
   const TOP_MARGIN = 40;
   const yOffset = allY.length ? TOP_MARGIN - Math.min(...allY) : 0;
@@ -256,7 +234,6 @@ export function lectureJsonToGraph(json: LectureJSON): { nodes: AppMindNode[]; e
   return { nodes, edges };
 }
 
-// Sample dataset used for the "Try a sample lecture" flow on the Upload page.
 export const CARS_LECTURE: LectureJSON = {
   lecture_title: "Understanding Cars: Mechanics and Dynamics",
   nodes: [

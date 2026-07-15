@@ -5,7 +5,6 @@ import instructor
 from groq import Groq
 from dotenv import load_dotenv
 load_dotenv()
-# 1. Define the structure for a single Node
 class MindMapNode(BaseModel):
     id: str = Field(description="Unique identifier like node_1, node_2")
     label: str = Field(description="Short text, 2-5 words maximizing structural clarity")
@@ -20,21 +19,18 @@ class MindMapNode(BaseModel):
     )
     summary: str = Field(description="1-2 highly descriptive sentences explaining the concept clearly")
 
-# 2. Define the structure for a single Edge 
 class MindMapEdge(BaseModel):
     id: str = Field(description="Unique identifier like edge_1, edge_2")
     source: str = Field(description="The parent node id where the arrow starts")
     target: str = Field(description="The child node id where the arrow points")
     label: str = Field(description="Lowercase operational phrase like 'requires' or 'leads to'")
 
-# 3. Define the final overall response structure
 class LectureMindMap(BaseModel):
     lecture_title: str = Field(description="The most suitable title of the processed lecture")
     nodes: List[MindMapNode]
     edges: List[MindMapEdge]
 
 def transform_transcript_to_mindmap(raw_transcript: str) -> LectureMindMap:
-    # Replace os.environ.get("OPENAI_API_KEY") with os.environ.get("GROQ_API_KEY")
     client = instructor.from_groq(Groq(api_key=os.environ.get("GROQ_API_KEY")))
     
     system_prompt = (
@@ -61,8 +57,6 @@ def transform_transcript_to_mindmap(raw_transcript: str) -> LectureMindMap:
     return response
 
 
-# 4. Study questions, generated once per lecture from its already-structured mind map
-# (not the raw transcript, which isn't persisted after processing).
 class StudyQuestion(BaseModel):
     question: str = Field(description="A specific study question testing real understanding of a concept from the lecture")
     answer: str = Field(description="A concise, correct answer to the question, 1-3 sentences")
@@ -99,7 +93,6 @@ def generate_study_questions(lecture_title: str, nodes: list) -> StudyQuestionSe
     return response
 
 if __name__ == "__main__":
-    # A tiny fake transcript string for debugging
     sample_transcript = (
         """i'm jake o'neil creator of animagraphs
 and this is how a car engine works
@@ -290,10 +283,8 @@ you"""
     
     print("Testing LLM Structure function...")
     try:
-        # Run your function
         result = transform_transcript_to_mindmap(sample_transcript)
         
-        # Print the structured result as a formatted JSON string
         print(result.model_dump_json(indent=2))
         print("\nSuccess! The output perfectly matches your schema data contract.")
         

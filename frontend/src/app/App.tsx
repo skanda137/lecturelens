@@ -27,7 +27,6 @@ import {
 } from "./components/ui/alert-dialog";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 
-// ─── Types ───────────────────────────────────────────────────────────────────
 
 type Page = "landing" | "dashboard" | "live" | "upload" | "mindmap" | "settings" | "lectures" | "analytics" | "bookmarks";
 
@@ -54,8 +53,6 @@ interface Edge {
   label?: string;
 }
 
-// A lecture currently loaded into the app. `id` is null for local-only data
-// (the sample lecture / pasted JSON) that has no backend record to persist against.
 interface ActiveLecture {
   id: string | null;
   title: string;
@@ -63,7 +60,6 @@ interface ActiveLecture {
   edges: Edge[];
 }
 
-// ─── Constants ───────────────────────────────────────────────────────────────
 
 const DEFAULT_NODE_COLORS: Record<NodeType, { bg: string; border: string; glow: string; badge: string }> = {
   main:       { bg: "rgba(99,102,241,0.15)",  border: "#6366f1", glow: "rgba(99,102,241,0.4)",  badge: "bg-indigo-500/20 text-indigo-300" },
@@ -76,9 +72,6 @@ const DEFAULT_NODE_COLORS: Record<NodeType, { bg: string; border: string; glow: 
   insight:    { bg: "rgba(168,85,247,0.15)",  border: "#a855f7", glow: "rgba(168,85,247,0.4)",  badge: "bg-purple-500/20 text-purple-300" },
 };
 
-// Colorblind-safe categorical palette (8 hues, validated for CVD separation
-// and dark-surface contrast — see the dataviz skill's palette validator).
-// Always paired with icon + text labels, never color alone.
 const COLORBLIND_NODE_COLORS: Record<NodeType, { bg: string; border: string; glow: string; badge: string }> = {
   main:       { bg: "#3987e526", border: "#3987e5", glow: "#3987e566", badge: "bg-[#3987e5]/20 text-[#3987e5]" },
   subtopic:   { bg: "#199e7026", border: "#199e70", glow: "#199e7066", badge: "bg-[#199e70]/20 text-[#199e70]" },
@@ -144,7 +137,6 @@ const TESTIMONIALS = [
   { name: "Priya Ramaswamy",  role: "Physics, Cambridge",            quote: "The AI confidence heatmap tells me what to study first. My grades went from C+ to A in one semester.", avatar: "PR", color: "#06b6d4" },
 ];
 
-// ─── Utility Components ───────────────────────────────────────────────────────
 
 function GlassCard({ children, className = "", onClick }: { children: React.ReactNode; className?: string; onClick?: () => void }) {
   return (
@@ -207,7 +199,6 @@ function Badge({ type }: { type: NodeType }) {
   );
 }
 
-// ─── Animated Background ─────────────────────────────────────────────────────
 
 function AnimatedBackground() {
   return (
@@ -229,7 +220,6 @@ function AnimatedBackground() {
   );
 }
 
-// ─── Floating Nodes (Landing) ─────────────────────────────────────────────────
 
 function FloatingNodes() {
   const nodes = [
@@ -261,9 +251,6 @@ function FloatingNodes() {
   );
 }
 
-// ─── Waveform ─────────────────────────────────────────────────────────────────
-// Bars reflect real microphone input levels (Web Audio API AnalyserNode),
-// not a decorative random animation.
 
 function useAudioLevels(stream: MediaStream | null, barCount: number): number[] {
   const [levels, setLevels] = useState<number[]>(() => Array(barCount).fill(4));
@@ -317,7 +304,6 @@ function Waveform({ stream, active }: { stream: MediaStream | null; active: bool
   );
 }
 
-// ─── Mini Mind Map SVG (inline, no ReactFlow to avoid install) ────────────────
 
 function mergeRefs<T>(...refs: Array<React.Ref<T> | undefined>) {
   return (node: T | null) => {
@@ -345,9 +331,6 @@ const MiniMindMap = forwardRef<SVGSVGElement, {
   const lastPos = useRef({ x: 0, y: 0 });
   const colors = useNodeColors();
 
-  // Frames the whole tree in view — used on load and by the "reset view" button.
-  // Replaces a hardcoded pan/zoom default, which clipped content for any tree
-  // bigger or differently shaped than the one it was eyeballed against.
   const fitToView = useCallback(() => {
     const svg = svgRef.current;
     if (!svg || nodes.length === 0) return;
@@ -363,9 +346,6 @@ const MiniMindMap = forwardRef<SVGSVGElement, {
     setPan({ x: rect.width / 2 - ((minX + maxX) / 2) * fitZoom, y: rect.height / 2 - ((minY + maxY) / 2) * fitZoom });
   }, [nodes]);
 
-  // Fit on first mount, and again whenever the graph goes from empty to populated
-  // (e.g. a live recording finishes processing) — but not on every filter/search
-  // change, which would otherwise yank the view around while typing.
   const hasFitRef = useRef(false);
   const prevCountRef = useRef(0);
   useEffect(() => {
@@ -374,10 +354,8 @@ const MiniMindMap = forwardRef<SVGSVGElement, {
     if (nodes.length === 0 || !shouldFit) return;
     hasFitRef.current = true;
     fitToView();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodes.length]);
 
-  // Pan the newly-added node into view when "Auto-center on new node" is on (Settings).
   useEffect(() => {
     if (!autoCenter || !newNodeId) return;
     const node = nodes.find(n => n.id === newNodeId);
@@ -385,7 +363,6 @@ const MiniMindMap = forwardRef<SVGSVGElement, {
     if (!node || !svg) return;
     const rect = svg.getBoundingClientRect();
     setPan({ x: rect.width / 2 - (node.x + 100) * zoom, y: rect.height / 2 - (node.y + 36) * zoom });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [newNodeId, autoCenter]);
 
   const handleWheel = (e: React.WheelEvent) => {
@@ -435,7 +412,6 @@ const MiniMindMap = forwardRef<SVGSVGElement, {
         {showGrid && <rect width="100%" height="100%" fill="url(#dots)" />}
 
         <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
-          {/* Edges */}
           {edges.map(e => {
             const s = nodeMap[e.source];
             const t = nodeMap[e.target];
@@ -443,7 +419,7 @@ const MiniMindMap = forwardRef<SVGSVGElement, {
             const sx = s.x + 100, sy = s.y + 36;
             const tx = t.x + 100, ty = t.y + 36;
             const mx = (sx + tx) / 2;
-            const my = (sy + ty) / 2; // midpoint of this specific symmetric bezier === average of endpoints
+            const my = (sy + ty) / 2;
             const path = `M ${sx} ${sy} C ${mx} ${sy}, ${mx} ${ty}, ${tx} ${ty}`;
             const isNew = e.target === newNodeId;
             const label = e.label && e.label.length > 22 ? e.label.slice(0, 22) + "…" : e.label;
@@ -479,12 +455,11 @@ const MiniMindMap = forwardRef<SVGSVGElement, {
             </linearGradient>
           </defs>
 
-          {/* Nodes */}
           {nodes.map(node => {
             const c = colors[node.type];
             const isSelected = selectedId === node.id;
             const isNew = newNodeId === node.id;
-            const isMain = node.type === "main"; // main topics render as an ellipse, everything else a rounded box
+            const isMain = node.type === "main";
             return (
               <motion.g
                 key={node.id}
@@ -524,15 +499,12 @@ const MiniMindMap = forwardRef<SVGSVGElement, {
                       fill="none" stroke={c.border} strokeWidth="1.5" opacity="0.6" />
                   )
                 )}
-                {/* Type indicator bar (skipped on ellipses — it would poke past the curve) */}
                 {!isMain && (
                   <rect x={node.x + 12} y={node.y + 12} width={4} height={48} rx={2} fill={c.border} opacity={0.8} />
                 )}
-                {/* Title */}
                 <text x={node.x + 26} y={node.y + 30} fill="#f4f4f5" fontSize="11" fontWeight="600" fontFamily="Inter,sans-serif">
                   {node.title.length > 22 ? node.title.slice(0, 22) + "…" : node.title}
                 </text>
-                {/* Summary */}
                 <text x={node.x + 26} y={node.y + 46} fill="#a1a1aa" fontSize="9.5" fontFamily="Inter,sans-serif">
                   {node.summary.length > 28 ? node.summary.slice(0, 28) + "…" : node.summary}
                 </text>
@@ -553,7 +525,6 @@ const MiniMindMap = forwardRef<SVGSVGElement, {
         </g>
       </svg>
 
-      {/* Controls */}
       <div className="absolute bottom-4 right-4 flex flex-col gap-1.5">
         {[
           { icon: <ZoomIn size={14} />,    action: () => setZoom(z => Math.min(2, z + 0.1)), active: false },
@@ -570,7 +541,6 @@ const MiniMindMap = forwardRef<SVGSVGElement, {
         ))}
       </div>
 
-      {/* MiniMap */}
       <div className="absolute bottom-4 left-4 w-28 h-20 rounded-xl border border-white/10 bg-zinc-900/80 backdrop-blur-md overflow-hidden">
         <svg width="100%" height="100%" viewBox="-100 -50 1400 600">
           {nodes.map(n => {
@@ -592,7 +562,6 @@ const MiniMindMap = forwardRef<SVGSVGElement, {
 });
 MiniMindMap.displayName = "MiniMindMap";
 
-// ─── Node Detail Sidebar ───────────────────────────────────────────────────────
 
 function NodeSidebar({ node, onClose, onBookmark, onSaveNotes }: {
   node: MindNode;
@@ -637,7 +606,6 @@ function NodeSidebar({ node, onClose, onBookmark, onSaveNotes }: {
       exit={{ x: 320, opacity: 0 }}
       transition={{ type: "spring", damping: 28, stiffness: 280 }}
     >
-      {/* Header */}
       <div className="p-5 border-b border-white/8">
         <div className="flex items-start justify-between mb-3">
           <Badge type={node.type} />
@@ -659,7 +627,6 @@ function NodeSidebar({ node, onClose, onBookmark, onSaveNotes }: {
         <h3 className="text-base font-semibold text-white leading-snug">{node.title}</h3>
       </div>
 
-      {/* Tabs */}
       <div className="flex border-b border-white/8">
         {(["summary", "notes"] as const).map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)}
@@ -712,7 +679,6 @@ function NodeSidebar({ node, onClose, onBookmark, onSaveNotes }: {
   );
 }
 
-// ─── Command Palette ───────────────────────────────────────────────────────────
 
 function CommandPalette({ onClose, onNavigate, onToggleFocusMode }: {
   onClose: () => void;
@@ -767,7 +733,6 @@ function CommandPalette({ onClose, onNavigate, onToggleFocusMode }: {
   );
 }
 
-// ─── Export Modal ─────────────────────────────────────────────────────────────
 
 function ExportModal({ onClose, title, nodes, edges, svgRef }: {
   onClose: () => void;
@@ -861,9 +826,6 @@ function ExportModal({ onClose, title, nodes, edges, svgRef }: {
   );
 }
 
-// ─── Study Questions Modal ──────────────────────────────────────────────────
-// Generated once per lecture (server-cached) from its structured mind map, not
-// a template — see /lectures/{id}/study.
 
 function StudyModal({ onClose, lectureId, lectureTitle }: { onClose: () => void; lectureId: string; lectureTitle: string }) {
   const [questions, setQuestions] = useState<StudyQuestion[] | null>(null);
@@ -929,7 +891,6 @@ function StudyModal({ onClose, lectureId, lectureTitle }: { onClose: () => void;
   );
 }
 
-// ─── Sidebar ──────────────────────────────────────────────────────────────────
 
 function AppSidebar({ page, onNavigate }: { page: Page; onNavigate: (p: Page) => void }) {
   const [expanded, setExpanded] = useState(false);
@@ -952,11 +913,9 @@ function AppSidebar({ page, onNavigate }: { page: Page; onNavigate: (p: Page) =>
       animate={{ width: expanded ? 280 : 88 }}
       transition={{ type: "spring", stiffness: 300, damping: 30 }}
     >
-      {/* Frosted glass background */}
       <div className="absolute inset-0 rounded-r-3xl bg-white/40 border border-white/30 backdrop-blur-xl -z-10" 
         style={{ boxShadow: "0 20px 60px rgba(0,0,0,0.08)" }} />
 
-      {/* Logo */}
       <motion.button 
         onClick={() => onNavigate("landing")}
         className="w-12 h-12 rounded-2xl flex items-center justify-center mb-8 relative group"
@@ -969,7 +928,6 @@ function AppSidebar({ page, onNavigate }: { page: Page; onNavigate: (p: Page) =>
         </motion.div>
       </motion.button>
 
-      {/* Navigation Items */}
       <nav className="flex-1 flex flex-col gap-2 w-full px-3">
         {navItems.map((item, idx) => (
           <motion.button 
@@ -983,7 +941,6 @@ function AppSidebar({ page, onNavigate }: { page: Page; onNavigate: (p: Page) =>
             whileHover={{ x: 4 }}
             whileTap={{ scale: 0.95 }}
           >
-            {/* Background pill */}
             {page === item.page && (
               <motion.div 
                 className="absolute inset-0 rounded-2xl -z-10"
@@ -993,7 +950,6 @@ function AppSidebar({ page, onNavigate }: { page: Page; onNavigate: (p: Page) =>
               />
             )}
 
-            {/* Icon */}
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 transition-all ${
               page === item.page 
                 ? "bg-white/20" 
@@ -1002,7 +958,6 @@ function AppSidebar({ page, onNavigate }: { page: Page; onNavigate: (p: Page) =>
               {item.icon}
             </div>
 
-            {/* Label */}
             {expanded && (
               <motion.span 
                 className="text-sm font-medium whitespace-nowrap"
@@ -1017,9 +972,7 @@ function AppSidebar({ page, onNavigate }: { page: Page; onNavigate: (p: Page) =>
         ))}
       </nav>
 
-      {/* Bottom Section */}
       <div className="w-full px-3 space-y-2 pt-4 border-t border-white/20">
-        {/* Settings */}
         <motion.button 
           onClick={() => onNavigate("settings")}
           className={`relative group flex items-center gap-3 w-full px-3 py-3 rounded-2xl transition-all ${
@@ -1052,7 +1005,6 @@ function AppSidebar({ page, onNavigate }: { page: Page; onNavigate: (p: Page) =>
   );
 }
 
-// ─── Top Bar ──────────────────────────────────────────────────────────────────
 
 function TopBar({ title, onCommandPalette, onExport }: { title: string; onCommandPalette: () => void; onExport?: () => void }) {
   return (
@@ -1065,20 +1017,15 @@ function TopBar({ title, onCommandPalette, onExport }: { title: string; onComman
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.1, duration: 0.4 }}
     >
-      {/* Frosted glass background */}
       <div className="absolute inset-0 backdrop-blur-xl -z-10" />
       
-      {/* Left: Title & Breadcrumb */}
       <div className="flex items-center gap-3">
         <h1 className="text-2xl font-display text-gray-900">{title}</h1>
       </div>
 
-      {/* Center: Spacer */}
       <div className="flex-1" />
 
-      {/* Right: Controls */}
       <div className="flex items-center gap-3">
-        {/* Search */}
         <motion.button 
           onClick={onCommandPalette}
           className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-white/30 bg-white/50 hover:bg-white/70 text-gray-600 text-sm transition-all hover:shadow-sm"
@@ -1090,7 +1037,6 @@ function TopBar({ title, onCommandPalette, onExport }: { title: string; onComman
           <kbd className="ml-2 px-2 py-0.5 rounded border border-gray-300 text-xs text-gray-400 bg-gray-50">⌘K</kbd>
         </motion.button>
 
-        {/* Export Button */}
         {onExport && (
           <motion.button 
             onClick={onExport}
@@ -1108,7 +1054,6 @@ function TopBar({ title, onCommandPalette, onExport }: { title: string; onComman
   );
 }
 
-// ─── LANDING PAGE ─────────────────────────────────────────────────────────────
 
 function LandingPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
   const timelineSteps = [
@@ -1123,7 +1068,6 @@ function LandingPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
     <div className="min-h-screen relative overflow-x-hidden">
       <AnimatedBackground />
 
-      {/* Nav */}
       <nav className="relative z-10 flex items-center justify-between px-8 py-5">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: "linear-gradient(135deg, #4f46e5, #7c3aed)" }}>
@@ -1147,7 +1091,6 @@ function LandingPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
         </div>
       </nav>
 
-      {/* Hero */}
       <section className="relative z-10 flex flex-col items-center text-center px-6 pt-20 pb-32">
         <FloatingNodes />
 
@@ -1179,7 +1122,6 @@ function LandingPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
           </div>
         </motion.div>
 
-        {/* Preview */}
         <motion.div className="relative mt-20 w-full max-w-5xl"
           initial={{ opacity: 0, y: 60 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.3 }}>
           <div className="absolute inset-0 rounded-2xl blur-2xl opacity-30" style={{ background: "linear-gradient(135deg, #6366f1, #8b5cf6, #06b6d4)" }} />
@@ -1195,7 +1137,6 @@ function LandingPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
         </motion.div>
       </section>
 
-      {/* Features */}
       <section className="relative z-10 px-8 py-24 max-w-6xl mx-auto">
         <motion.div className="text-center mb-16" initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
           <h2 className="text-4xl font-bold text-slate-900 mb-4">Everything you need to learn better</h2>
@@ -1217,7 +1158,6 @@ function LandingPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
         </div>
       </section>
 
-      {/* Timeline */}
       <section className="relative z-10 px-8 py-24 max-w-5xl mx-auto">
         <motion.div className="text-center mb-16" initial={{ opacity: 0 }} whileInView={{ opacity: 1 }} viewport={{ once: true }}>
           <h2 className="text-4xl font-bold text-slate-900 mb-4">From audio to understanding</h2>
@@ -1243,7 +1183,6 @@ function LandingPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
         </div>
       </section>
 
-      {/* Testimonials */}
       <section className="relative z-10 px-8 py-24 max-w-5xl mx-auto">
         <motion.div className="text-center mb-16" initial={{ opacity: 0 }} whileInView={{ opacity: 1 }} viewport={{ once: true }}>
           <h2 className="text-4xl font-bold text-slate-900 mb-4">Students who finally get it</h2>
@@ -1270,7 +1209,6 @@ function LandingPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
         </div>
       </section>
 
-      {/* CTA */}
       <section className="relative z-10 px-8 py-24 text-center">
         <GlassCard className="max-w-3xl mx-auto p-16">
           <h2 className="text-4xl font-bold text-slate-900 mb-4">Start learning visually today.</h2>
@@ -1284,7 +1222,6 @@ function LandingPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
         </GlassCard>
       </section>
 
-      {/* Footer */}
       <footer className="relative z-10 border-t border-slate-200/80 px-8 py-8 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Brain size={14} className="text-violet-600" />
@@ -1300,7 +1237,6 @@ function LandingPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
   );
 }
 
-// ─── DASHBOARD ────────────────────────────────────────────────────────────────
 
 function Dashboard({ onNavigate, onCommandPalette, onOpenLecture }: {
   onNavigate: (p: Page) => void;
@@ -1324,7 +1260,6 @@ function Dashboard({ onNavigate, onCommandPalette, onOpenLecture }: {
 
   return (
     <div className="flex-1 overflow-y-auto">
-      {/* Hero Section */}
       <motion.div
         className="relative px-8 pt-8 pb-12 bg-gradient-to-br from-purple-50/50 to-blue-50/30 border-b border-white/20"
         initial={{ opacity: 0, y: -20 }}
@@ -1341,7 +1276,6 @@ function Dashboard({ onNavigate, onCommandPalette, onOpenLecture }: {
             <p className="text-lg text-gray-600 mb-6">Your learning journey continues. Keep pushing boundaries.</p>
           </motion.div>
 
-          {/* Hero Stats */}
           <div className="grid grid-cols-3 gap-6 mt-8">
             {[
               { label: "Learning Streak", value: stats ? `${stats.streak_days} day${stats.streak_days === 1 ? "" : "s"}` : "—", icon: "🔥", color: "from-orange-500 to-red-500" },
@@ -1367,9 +1301,7 @@ function Dashboard({ onNavigate, onCommandPalette, onOpenLecture }: {
         </div>
       </motion.div>
 
-      {/* Main Content */}
       <div className="px-8 py-12 max-w-6xl mx-auto space-y-12">
-        {/* Stat Cards */}
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4, duration: 0.6 }}>
           <h2 className="text-2xl font-display text-gray-900 mb-6">Your Statistics</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -1412,7 +1344,6 @@ function Dashboard({ onNavigate, onCommandPalette, onOpenLecture }: {
                   <p className="text-3xl font-display text-gray-900 mb-2">{s.value}</p>
                   <p className="text-sm text-gray-600 font-medium uppercase tracking-wide">{s.label}</p>
                   
-                  {/* Animated underline */}
                   <div className="mt-4 h-1 rounded-full bg-white/20 overflow-hidden">
                     <motion.div 
                       className="h-full rounded-full" 
@@ -1428,12 +1359,10 @@ function Dashboard({ onNavigate, onCommandPalette, onOpenLecture }: {
           </div>
         </motion.div>
 
-        {/* Quick Actions */}
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5, duration: 0.6 }}>
           <h2 className="text-2xl font-display text-gray-900 mb-6">Quick Actions</h2>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Start Recording */}
             <motion.button 
               onClick={() => onNavigate("live")}
               className="relative group h-40 overflow-hidden rounded-2xl border border-white/40 transition-all duration-300 hover:border-white/60"
@@ -1442,12 +1371,10 @@ function Dashboard({ onNavigate, onCommandPalette, onOpenLecture }: {
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.6, duration: 0.5 }}
             >
-              {/* Background */}
               <div className="absolute inset-0" style={{
                 background: "linear-gradient(135deg, rgba(109,94,247,0.12) 0%, rgba(109,94,247,0.04) 100%)"
               }} />
               
-              {/* Animated overlay on hover */}
               <motion.div 
                 className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
                 style={{
@@ -1456,7 +1383,6 @@ function Dashboard({ onNavigate, onCommandPalette, onOpenLecture }: {
               />
               
               <div className="relative h-full flex items-center gap-6 px-8">
-                {/* Icon */}
                 <motion.div 
                   className="w-16 h-16 rounded-2xl flex items-center justify-center flex-shrink-0 backdrop-blur-sm"
                   style={{ background: "rgba(109,94,247,0.15)", border: "1px solid rgba(109,94,247,0.3)" }}
@@ -1465,13 +1391,11 @@ function Dashboard({ onNavigate, onCommandPalette, onOpenLecture }: {
                   <Mic size={28} className="text-purple-600" />
                 </motion.div>
                 
-                {/* Content */}
                 <div className="text-left flex-1">
                   <p className="text-lg font-display text-gray-900 mb-1">Start Recording</p>
                   <p className="text-gray-600">Record and analyze in real-time</p>
                 </div>
                 
-                {/* Arrow */}
                 <motion.div 
                   className="ml-2"
                   animate={{ x: [0, 6, 0] }}
@@ -1482,7 +1406,6 @@ function Dashboard({ onNavigate, onCommandPalette, onOpenLecture }: {
               </div>
             </motion.button>
 
-            {/* Upload Video */}
             <motion.button 
               onClick={() => onNavigate("upload")}
               className="relative group h-40 overflow-hidden rounded-2xl border border-white/40 transition-all duration-300 hover:border-white/60"
@@ -1491,12 +1414,10 @@ function Dashboard({ onNavigate, onCommandPalette, onOpenLecture }: {
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.6, duration: 0.5 }}
             >
-              {/* Background */}
               <div className="absolute inset-0" style={{
                 background: "linear-gradient(135deg, rgba(124,58,237,0.12) 0%, rgba(124,58,237,0.04) 100%)"
               }} />
               
-              {/* Animated overlay */}
               <motion.div 
                 className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
                 style={{
@@ -1505,7 +1426,6 @@ function Dashboard({ onNavigate, onCommandPalette, onOpenLecture }: {
               />
               
               <div className="relative h-full flex items-center gap-6 px-8">
-                {/* Icon */}
                 <motion.div 
                   className="w-16 h-16 rounded-2xl flex items-center justify-center flex-shrink-0 backdrop-blur-sm"
                   style={{ background: "rgba(124,58,237,0.15)", border: "1px solid rgba(124,58,237,0.3)" }}
@@ -1514,13 +1434,11 @@ function Dashboard({ onNavigate, onCommandPalette, onOpenLecture }: {
                   <Upload size={28} className="text-violet-600" />
                 </motion.div>
                 
-                {/* Content */}
                 <div className="text-left flex-1">
                   <p className="text-lg font-display text-gray-900 mb-1">Upload Video</p>
                   <p className="text-gray-600">Process recorded lectures</p>
                 </div>
                 
-                {/* Arrow */}
                 <motion.div 
                   className="ml-2"
                   animate={{ x: [0, 6, 0] }}
@@ -1533,7 +1451,6 @@ function Dashboard({ onNavigate, onCommandPalette, onOpenLecture }: {
           </div>
         </motion.div>
 
-        {/* Recent Lectures */}
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.6, duration: 0.6 }}>
           <div className="flex items-center justify-between mb-6">
             <div>
@@ -1592,7 +1509,6 @@ function Dashboard({ onNavigate, onCommandPalette, onOpenLecture }: {
                   }}
                 >
                   <div className="relative flex items-center gap-6">
-                    {/* Icon Box */}
                     <motion.div
                       className="w-20 h-20 rounded-2xl flex items-center justify-center flex-shrink-0 backdrop-blur-sm transition-all group-hover:scale-110"
                       style={{
@@ -1603,7 +1519,6 @@ function Dashboard({ onNavigate, onCommandPalette, onOpenLecture }: {
                       <Map size={28} className="text-indigo-600" />
                     </motion.div>
 
-                    {/* Content */}
                     <div className="flex-1 min-w-0 text-left">
                       <h3 className="text-lg font-display text-gray-900 mb-2 truncate group-hover:text-purple-600 transition-colors">{l.title}</h3>
                       <div className="flex items-center gap-4 text-sm text-gray-600">
@@ -1634,9 +1549,7 @@ function Dashboard({ onNavigate, onCommandPalette, onOpenLecture }: {
   );
 }
 
-// ─── LIVE LECTURE PAGE ────────────────────────────────────────────────────────
 
-/** Picks the best speech-quality codec MediaRecorder actually supports, Opus first. */
 function pickAudioMimeType(): string | undefined {
   if (typeof MediaRecorder === "undefined" || !MediaRecorder.isTypeSupported) return undefined;
   const candidates = [
@@ -1677,9 +1590,7 @@ function LivePage({ onImport }: { onImport: (lecture: ActiveLecture) => void }) 
   }, [recording]);
 
   useEffect(() => {
-    // Release the microphone if the user navigates away mid-recording.
     return () => { stream?.getTracks().forEach(t => t.stop()); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fmt = (s: number) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
@@ -1687,8 +1598,6 @@ function LivePage({ onImport }: { onImport: (lecture: ActiveLecture) => void }) 
   const startRecording = async () => {
     setError(null);
     try {
-      // Explicit constraints (not just `{ audio: true }`) so we don't inherit a low
-      // default sample rate, plus the browser's speech-cleanup processing.
       const mic = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
@@ -1700,9 +1609,6 @@ function LivePage({ onImport }: { onImport: (lecture: ActiveLecture) => void }) 
       });
       chunksRef.current = [];
       const mimeType = pickAudioMimeType();
-      // A high bitrate matters here: browsers otherwise default MediaRecorder to a low
-      // bitrate (as low as ~24-32kbps on some), which visibly hurts transcription
-      // accuracy compared to a normal audio file upload.
       let recorder: MediaRecorder;
       try {
         recorder = new MediaRecorder(mic, { ...(mimeType ? { mimeType } : {}), audioBitsPerSecond: 128000 });
@@ -1766,7 +1672,7 @@ function LivePage({ onImport }: { onImport: (lecture: ActiveLecture) => void }) 
     const nextBookmarked = !node.bookmarked;
     setNodes(prev => prev.map(n => n.id === id ? { ...n, bookmarked: nextBookmarked } : n));
     if (lectureId) {
-      try { await updateNode(lectureId, id, { bookmarked: nextBookmarked }); } catch { /* local state already updated; best-effort persistence */ }
+      try { await updateNode(lectureId, id, { bookmarked: nextBookmarked }); } catch { }
     }
   };
 
@@ -1779,7 +1685,6 @@ function LivePage({ onImport }: { onImport: (lecture: ActiveLecture) => void }) 
 
   return (
     <div className="flex-1 flex overflow-hidden relative">
-      {/* Left Panel */}
       <div className="w-72 flex-shrink-0 border-r border-white/6 flex flex-col overflow-hidden">
         <div className="p-4 border-b border-white/6">
           <div className="flex items-center gap-2 mb-4">
@@ -1826,7 +1731,6 @@ function LivePage({ onImport }: { onImport: (lecture: ActiveLecture) => void }) 
         </div>
       </div>
 
-      {/* Mind Map */}
       <div className="flex-1 relative">
         <MiniMindMap
           ref={mapRef}
@@ -1838,7 +1742,6 @@ function LivePage({ onImport }: { onImport: (lecture: ActiveLecture) => void }) 
           autoCenter={autoCenter}
         />
 
-        {/* Filters Bar */}
         <div className="absolute top-3 left-3 flex gap-1.5">
           {(["all", "main", "subtopic", "note", "insight"] as const).map(f => (
             <button key={f} onClick={() => setFilter(f)}
@@ -1848,7 +1751,6 @@ function LivePage({ onImport }: { onImport: (lecture: ActiveLecture) => void }) 
           ))}
         </div>
 
-        {/* Export / Study buttons */}
         {nodes.length > 0 && (
           <div className="absolute top-3 right-3 flex items-center gap-1.5">
             {lectureId && (
@@ -1865,7 +1767,6 @@ function LivePage({ onImport }: { onImport: (lecture: ActiveLecture) => void }) 
         )}
       </div>
 
-      {/* Node Sidebar */}
       <AnimatePresence>
         {selectedNode && (
           <div className="relative w-80 flex-shrink-0">
@@ -1890,9 +1791,7 @@ function LivePage({ onImport }: { onImport: (lecture: ActiveLecture) => void }) 
   );
 }
 
-// ─── UPLOAD PAGE ──────────────────────────────────────────────────────────────
 
-/** Reads an audio/video file's duration client-side (no backend round-trip). */
 function getMediaDuration(file: File): Promise<number | undefined> {
   return new Promise(resolve => {
     const url = URL.createObjectURL(file);
@@ -1943,8 +1842,6 @@ function UploadPage({ onImport, onNavigate }: { onImport: (lecture: ActiveLectur
     }, 80);
   };
 
-  // Uploads the real audio/video file to the FastAPI backend (/process-audio)
-  // and converts the returned mind map JSON into the graph the app renders.
   const uploadRealFile = async (file: File) => {
     setUploaded(file.name);
     setProcessing(true);
@@ -1953,7 +1850,6 @@ function UploadPage({ onImport, onNavigate }: { onImport: (lecture: ActiveLectur
     setPendingLectureId(null);
     setUploadError(null);
 
-    // Crawl toward 90% while we wait on the backend; real completion snaps it to 100.
     const t = setInterval(() => {
       setProgress(p => (p < 90 ? p + 2 : p));
     }, 200);
@@ -2015,7 +1911,6 @@ function UploadPage({ onImport, onNavigate }: { onImport: (lecture: ActiveLectur
 
   return (
     <div className="flex-1 overflow-y-auto">
-      {/* Hero Section */}
       <motion.div 
         className="relative px-8 pt-12 pb-8 bg-gradient-to-br from-purple-50/50 to-blue-50/30 border-b border-white/20"
         initial={{ opacity: 0, y: -20 }}
@@ -2034,7 +1929,6 @@ function UploadPage({ onImport, onNavigate }: { onImport: (lecture: ActiveLectur
         </div>
       </motion.div>
 
-      {/* Main Content */}
       <div className="px-8 py-12 max-w-4xl mx-auto">
         {!uploaded ? (
           <motion.div 
@@ -2043,7 +1937,6 @@ function UploadPage({ onImport, onNavigate }: { onImport: (lecture: ActiveLectur
             transition={{ delay: 0.3, duration: 0.5 }}
             className="space-y-8"
           >
-            {/* Upload Area */}
             <motion.div
               className={`relative rounded-3xl border-2 border-dashed overflow-hidden transition-all cursor-pointer ${
                 dragging 
@@ -2064,7 +1957,6 @@ function UploadPage({ onImport, onNavigate }: { onImport: (lecture: ActiveLectur
                 className="hidden"
                 onChange={e => { const file = e.target.files?.[0]; if (file) uploadRealFile(file); e.target.value = ""; }}
               />
-              {/* Animated background gradient on drag */}
               <motion.div 
                 className="absolute inset-0 opacity-0 transition-opacity"
                 style={{
@@ -2074,7 +1966,6 @@ function UploadPage({ onImport, onNavigate }: { onImport: (lecture: ActiveLectur
               />
 
               <div className="relative py-20 px-8 text-center">
-                {/* Icon */}
                 <motion.div 
                   className="w-24 h-24 rounded-3xl mx-auto mb-6 flex items-center justify-center"
                   style={{ background: "linear-gradient(135deg, rgba(109,94,247,0.15), rgba(124,58,237,0.1))" }}
@@ -2086,7 +1977,6 @@ function UploadPage({ onImport, onNavigate }: { onImport: (lecture: ActiveLectur
                 <p className="text-2xl font-display text-gray-900 mb-3">Drop your lecture here</p>
                 <p className="text-gray-600 mb-6">or click to browse your computer</p>
 
-                {/* Format pills */}
                 <div className="flex items-center justify-center gap-2 flex-wrap">
                   {["MP4", "MOV", "MPEG", "MP3", "WAV", "M4A"].map((f, i) => (
                     <motion.span 
@@ -2103,16 +1993,13 @@ function UploadPage({ onImport, onNavigate }: { onImport: (lecture: ActiveLectur
               </div>
             </motion.div>
 
-            {/* Divider */}
             <div className="flex items-center gap-4">
               <div className="h-px flex-1 bg-gray-200" />
               <span className="text-sm text-gray-500 font-medium">OR</span>
               <div className="h-px flex-1 bg-gray-200" />
             </div>
 
-            {/* Quick Actions */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Try Sample */}
               <motion.button 
                 onClick={loadSample}
                 className="group relative overflow-hidden rounded-2xl border border-gray-200 hover:border-gray-300 transition-all p-6 bg-white/70 hover:bg-white/90"
@@ -2132,7 +2019,6 @@ function UploadPage({ onImport, onNavigate }: { onImport: (lecture: ActiveLectur
                 </div>
               </motion.button>
 
-              {/* Paste JSON */}
               <motion.button 
                 onClick={() => setShowPaste(v => !v)}
                 className="group relative overflow-hidden rounded-2xl border border-gray-200 hover:border-gray-300 transition-all p-6 bg-white/70 hover:bg-white/90"
@@ -2153,7 +2039,6 @@ function UploadPage({ onImport, onNavigate }: { onImport: (lecture: ActiveLectur
               </motion.button>
             </div>
 
-            {/* Paste Editor */}
             {showPaste && (
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
@@ -2181,13 +2066,11 @@ function UploadPage({ onImport, onNavigate }: { onImport: (lecture: ActiveLectur
             )}
           </motion.div>
         ) : (
-          /* Processing State */
           <motion.div 
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             className="space-y-8"
           >
-            {/* Upload Card */}
             <div className="rounded-2xl border border-gray-200 bg-white/70 backdrop-blur-sm p-8">
               <div className="flex items-start gap-6 mb-6">
                 <motion.div 
@@ -2203,7 +2086,6 @@ function UploadPage({ onImport, onNavigate }: { onImport: (lecture: ActiveLectur
                 </div>
               </div>
 
-              {/* Progress Bar */}
               <div className="h-2 rounded-full bg-gray-200 overflow-hidden">
                 <motion.div 
                   className="h-full rounded-full"
@@ -2215,7 +2097,6 @@ function UploadPage({ onImport, onNavigate }: { onImport: (lecture: ActiveLectur
               </div>
             </div>
 
-            {/* Upload Error */}
             {uploadError && (
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
@@ -2235,7 +2116,6 @@ function UploadPage({ onImport, onNavigate }: { onImport: (lecture: ActiveLectur
               </motion.div>
             )}
 
-            {/* Processing Steps */}
             <div className="rounded-2xl border border-gray-200 bg-white/70 backdrop-blur-sm p-8">
               <h3 className="font-display text-lg text-gray-900 mb-6">Processing your lecture</h3>
               <div className="space-y-4">
@@ -2270,7 +2150,6 @@ function UploadPage({ onImport, onNavigate }: { onImport: (lecture: ActiveLectur
               </div>
             </div>
 
-            {/* Action Button */}
             {progress === 100 && !uploadError && (
               <motion.button 
                 onClick={handleOpenMindMap}
@@ -2291,7 +2170,6 @@ function UploadPage({ onImport, onNavigate }: { onImport: (lecture: ActiveLectur
   );
 }
 
-// ─── MIND MAP PAGE ────────────────────────────────────────────────────────────
 
 function MindMapPage({ lectureId, title, nodes: sourceNodes, edges: sourceEdges, initialSelectedNodeId }: {
   lectureId: string | null;
@@ -2327,7 +2205,7 @@ function MindMapPage({ lectureId, title, nodes: sourceNodes, edges: sourceEdges,
     const nextBookmarked = !node.bookmarked;
     setNodes(prev => prev.map(n => n.id === id ? { ...n, bookmarked: nextBookmarked } : n));
     if (lectureId) {
-      try { await updateNode(lectureId, id, { bookmarked: nextBookmarked }); } catch { /* local state already updated; best-effort persistence */ }
+      try { await updateNode(lectureId, id, { bookmarked: nextBookmarked }); } catch { }
     }
   };
 
@@ -2347,7 +2225,6 @@ function MindMapPage({ lectureId, title, nodes: sourceNodes, edges: sourceEdges,
   return (
     <div className="flex-1 flex overflow-hidden relative">
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Toolbar */}
         <div className="flex items-center gap-3 px-4 py-2.5 border-b border-white/6">
           <div className="flex items-center gap-1.5 flex-1">
             <Search size={13} className="text-zinc-500" />
@@ -2374,7 +2251,6 @@ function MindMapPage({ lectureId, title, nodes: sourceNodes, edges: sourceEdges,
           </button>
         </div>
 
-        {/* Map */}
         <div className="flex-1 relative">
           <MiniMindMap
             ref={mapRef}
@@ -2412,7 +2288,6 @@ function MindMapPage({ lectureId, title, nodes: sourceNodes, edges: sourceEdges,
   );
 }
 
-// ─── MY LECTURES PAGE ─────────────────────────────────────────────────────────
 
 function LecturesPage({ onOpenLecture, onNavigate }: { onOpenLecture: (id: string) => void; onNavigate: (p: Page) => void }) {
   const [lectures, setLectures] = useState<LectureSummary[] | null>(null);
@@ -2509,7 +2384,6 @@ function LecturesPage({ onOpenLecture, onNavigate }: { onOpenLecture: (id: strin
   );
 }
 
-// ─── ANALYTICS PAGE ───────────────────────────────────────────────────────────
 
 function AnalyticsPage() {
   const [stats, setStats] = useState<Stats | null>(null);
@@ -2609,7 +2483,6 @@ function AnalyticsPage() {
   );
 }
 
-// ─── BOOKMARKS PAGE ───────────────────────────────────────────────────────────
 
 function BookmarksPage({ onOpenBookmark }: { onOpenBookmark: (lectureId: string, nodeId: string) => void }) {
   const [bookmarks, setBookmarks] = useState<BookmarkEntry[] | null>(null);
@@ -2669,7 +2542,6 @@ function BookmarksPage({ onOpenBookmark }: { onOpenBookmark: (lectureId: string,
   );
 }
 
-// ─── SETTINGS PAGE ────────────────────────────────────────────────────────────
 
 function SettingsPage() {
   const { largeText, highContrast, reducedMotion, colorblindMode, autoCenter, notifications, setSetting } = useSettings();
@@ -2728,7 +2600,6 @@ function SettingsPage() {
           </motion.div>
         ))}
 
-        {/* Keyboard shortcuts */}
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
           <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">Keyboard Shortcuts</p>
           <GlassCard>
@@ -2756,7 +2627,6 @@ function SettingsPage() {
   );
 }
 
-// ─── APP SHELL ────────────────────────────────────────────────────────────────
 
 export default function App() {
   return (

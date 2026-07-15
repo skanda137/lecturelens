@@ -60,11 +60,10 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_edges_lecture ON edges(lecture_id);
             """
         )
-        # Lightweight migration for DBs created before study questions existed.
         try:
             conn.execute("ALTER TABLE lectures ADD COLUMN study_questions TEXT")
         except sqlite3.OperationalError:
-            pass  # column already exists
+            pass
 
 
 def create_lecture(mind_map, duration_seconds=None, source_filename=None):

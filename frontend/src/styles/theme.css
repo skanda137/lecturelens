@@ -190,7 +190,6 @@
   }
 }
 
-/* ─── Accessibility settings (see SettingsContext) ────────────────────── */
 
 .a11y-large-text {
   --font-size: 19px;
@@ -232,12 +231,10 @@
 }
 
 @layer components {
-  /* Enhanced glass morphism */
   .glass-effect {
     @apply backdrop-blur-xl bg-white/[0.02] border border-white/10 rounded-2xl;
   }
 
-  /* Smooth gradient animations */
   @keyframes gradient-shift {
     0%, 100% {
       background-position: 0% 50%;
@@ -252,7 +249,6 @@
     animation: gradient-shift 3s ease infinite;
   }
 
-  /* Smooth hover lift effect */
   @keyframes lift {
     0% {
       transform: translateY(0);
@@ -266,7 +262,6 @@
     animation: lift 0.3s ease-out forwards;
   }
 
-  /* Floating animation */
   @keyframes floating {
     0%, 100% {
       transform: translateY(0px);
@@ -280,12 +275,10 @@
     animation: floating 3s ease-in-out infinite;
   }
 
-  /* Glow effect */
   .glow-effect {
     box-shadow: 0 0 20px rgba(99, 102, 241, 0.3), 0 0 40px rgba(99, 102, 241, 0.1);
   }
 
-  /* Shimmer effect */
   @keyframes shimmer {
     0% {
       background-position: -1000px 0;
@@ -307,12 +300,10 @@
     animation: shimmer 2s infinite;
   }
 
-  /* Smooth transitions */
   .smooth-transition {
     @apply transition-all duration-300 ease-out;
   }
 
-  /* Professional typography */
   .font-display {
     @apply font-bold tracking-tight;
   }

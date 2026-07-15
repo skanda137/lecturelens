@@ -31,7 +31,7 @@ ALLOWED_UPLOAD_EXTENSIONS = {
     ".mp3", ".wav", ".m4a", ".mp4", ".mov", ".webm", ".ogg", ".oga", ".flac", ".aac", ".mkv", ".avi",
     ".mpeg", ".mpg", ".m2v", ".mp2",
 }
-MAX_UPLOAD_BYTES = 500 * 1024 * 1024  # 500 MB
+MAX_UPLOAD_BYTES = 500 * 1024 * 1024
 
 
 @asynccontextmanager
@@ -103,6 +103,8 @@ async def process_audio(file: UploadFile = File(...), duration_seconds: Optional
 
     except HTTPException:
         raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         print(f"[API ERROR] {e}")
         detail = str(e) if DEBUG else "Internal server error while processing the file."
@@ -179,8 +181,6 @@ async def list_bookmarks():
     return db.list_bookmarks()
 
 
-# Serve the built React frontend (frontend/dist, produced by `npm run build`).
-# Mounted last so it acts as a fallback and never shadows the API routes above.
 FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "frontend", "dist")
 if os.path.isdir(FRONTEND_DIST):
     app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")

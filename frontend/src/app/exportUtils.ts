@@ -1,6 +1,3 @@
-// ─── Mind map export ────────────────────────────────────────────────────────
-// Every format is generated client-side from data already in the browser —
-// no backend round-trip needed.
 
 import type { AppEdge, AppMindNode } from "./lectureImport";
 
@@ -60,7 +57,7 @@ export function downloadMarkdown(title: string, nodes: AppMindNode[]) {
   };
 
   roots.forEach(r => walk(r, 0));
-  nodes.forEach(n => { if (!visited.has(n.id)) walk(n, 0); }); // disconnected nodes, just in case
+  nodes.forEach(n => { if (!visited.has(n.id)) walk(n, 0); });
 
   triggerDownload(new Blob([lines.join("\n")], { type: "text/markdown" }), `${slugify(title)}.md`);
 }
@@ -97,7 +94,7 @@ async function svgToPngDataUrl(
       image.src = url;
     });
 
-    const scale = 2; // export at 2x for a crisper image
+    const scale = 2;
     const canvas = document.createElement("canvas");
     canvas.width = width * scale;
     canvas.height = height * scale;
