@@ -1,3 +1,4 @@
+import json
 import os
 import sqlite3
 import uuid
@@ -59,6 +60,11 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_edges_lecture ON edges(lecture_id);
             """
         )
+        # Lightweight migration for DBs created before study questions existed.
+        try:
+            conn.execute("ALTER TABLE lectures ADD COLUMN study_questions TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already exists
 
 
 def create_lecture(mind_map, duration_seconds=None, source_filename=None):
@@ -142,6 +148,25 @@ def get_lecture(lecture_id):
         "nodes": [_row_node(n) for n in nodes],
         "edges": [_row_edge(e) for e in edges],
     }
+
+
+def get_cached_study_questions(lecture_id):
+    """None means "not generated yet" (distinct from a lecture generating zero questions)."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT study_questions FROM lectures WHERE id = ?", (lecture_id,)
+        ).fetchone()
+    if row is None or row["study_questions"] is None:
+        return None
+    return json.loads(row["study_questions"])
+
+
+def save_study_questions(lecture_id, questions):
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE lectures SET study_questions = ? WHERE id = ?",
+            (json.dumps(questions), lecture_id),
+        )
 
 
 def delete_lecture(lecture_id):

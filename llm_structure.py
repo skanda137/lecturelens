@@ -50,14 +50,52 @@ def transform_transcript_to_mindmap(raw_transcript: str) -> LectureMindMap:
     )
 
     response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile", 
+        model="llama-3.3-70b-versatile",
         response_model=LectureMindMap,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"### TRANSCRIPT START ###\n{raw_transcript}\n### TRANSCRIPT END ###"}
         ],
     )
-    
+
+    return response
+
+
+# 4. Study questions, generated once per lecture from its already-structured mind map
+# (not the raw transcript, which isn't persisted after processing).
+class StudyQuestion(BaseModel):
+    question: str = Field(description="A specific study question testing real understanding of a concept from the lecture")
+    answer: str = Field(description="A concise, correct answer to the question, 1-3 sentences")
+
+
+class StudyQuestionSet(BaseModel):
+    questions: List[StudyQuestion]
+
+
+def generate_study_questions(lecture_title: str, nodes: list) -> StudyQuestionSet:
+    client = instructor.from_groq(Groq(api_key=os.environ.get("GROQ_API_KEY")))
+
+    outline = "\n".join(f"- {n['label']} ({n['type']}): {n['summary']}" for n in nodes)
+
+    system_prompt = (
+        "You are an expert educator writing a short study quiz from a lecture's structured outline. "
+        "Write clear, specific questions that test real understanding of the concepts below — never "
+        "generic or templated questions like 'What is the purpose of X?'. Cover a spread of the outline "
+        "rather than repeating one topic. Provide a concise, correct answer for each question."
+    )
+
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        response_model=StudyQuestionSet,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": f"Lecture: {lecture_title}\n\nOutline:\n{outline}\n\nGenerate 5-8 study questions with answers.",
+            },
+        ],
+    )
+
     return response
 
 if __name__ == "__main__":

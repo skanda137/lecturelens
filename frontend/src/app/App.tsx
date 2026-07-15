@@ -12,12 +12,12 @@ import {
   BarChart3, Activity, Plus, Filter, Tag, Hash, Link,
   ChevronDown, MoreHorizontal, RefreshCw, Minimize2,
   PanelRight, Crosshair, Grid3x3, Wifi, WifiOff,
-  Trash2, AlertCircle, Loader2, Inbox,
+  Trash2, AlertCircle, Loader2, Inbox, HelpCircle,
 } from "lucide-react";
 import {
   lectureJsonToGraph, processLectureAudio, CARS_LECTURE,
-  listLectures, getLecture, deleteLecture, updateNode, getStats, listBookmarks,
-  type LectureJSON, type LectureSummary, type LectureDetail, type Stats, type BookmarkEntry, type LectureNodeType,
+  listLectures, getLecture, deleteLecture, updateNode, getStats, listBookmarks, getStudyQuestions,
+  type LectureJSON, type LectureSummary, type LectureDetail, type Stats, type BookmarkEntry, type LectureNodeType, type StudyQuestion,
 } from "./lectureImport";
 import { downloadJson, downloadMarkdown, downloadSvg, downloadPng, downloadPdf } from "./exportUtils";
 import { SettingsProvider, useSettings } from "./SettingsContext";
@@ -51,6 +51,7 @@ interface Edge {
   id: string;
   source: string;
   target: string;
+  label?: string;
 }
 
 // A lecture currently loaded into the app. `id` is null for local-only data
@@ -118,14 +119,14 @@ const SEED_NODES: MindNode[] = [
 ];
 
 const SEED_EDGES: Edge[] = [
-  { id: "e1-2", source: "n1", target: "n2" },
-  { id: "e1-3", source: "n1", target: "n3" },
-  { id: "e2-4", source: "n2", target: "n4" },
-  { id: "e2-5", source: "n2", target: "n5" },
-  { id: "e3-6", source: "n3", target: "n6" },
-  { id: "e3-7", source: "n3", target: "n7" },
-  { id: "e4-8", source: "n4", target: "n8" },
-  { id: "e4-9", source: "n4", target: "n9" },
+  { id: "e1-2", source: "n1", target: "n2", label: "includes" },
+  { id: "e1-3", source: "n1", target: "n3", label: "includes" },
+  { id: "e2-4", source: "n2", target: "n4", label: "relies on" },
+  { id: "e2-5", source: "n2", target: "n5", label: "example" },
+  { id: "e3-6", source: "n3", target: "n6", label: "example" },
+  { id: "e3-7", source: "n3", target: "n7", label: "raises" },
+  { id: "e4-8", source: "n4", target: "n8", label: "raises" },
+  { id: "e4-9", source: "n4", target: "n9", label: "requires" },
 ];
 
 const FEATURES = [
@@ -344,6 +345,38 @@ const MiniMindMap = forwardRef<SVGSVGElement, {
   const lastPos = useRef({ x: 0, y: 0 });
   const colors = useNodeColors();
 
+  // Frames the whole tree in view — used on load and by the "reset view" button.
+  // Replaces a hardcoded pan/zoom default, which clipped content for any tree
+  // bigger or differently shaped than the one it was eyeballed against.
+  const fitToView = useCallback(() => {
+    const svg = svgRef.current;
+    if (!svg || nodes.length === 0) return;
+    const rect = svg.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    const minX = Math.min(...nodes.map(n => n.x));
+    const maxX = Math.max(...nodes.map(n => n.x + 200));
+    const minY = Math.min(...nodes.map(n => n.y));
+    const maxY = Math.max(...nodes.map(n => n.y + 72));
+    const pad = 80;
+    const fitZoom = Math.max(0.3, Math.min(1, Math.min((rect.width - pad) / (maxX - minX || 1), (rect.height - pad) / (maxY - minY || 1))));
+    setZoom(fitZoom);
+    setPan({ x: rect.width / 2 - ((minX + maxX) / 2) * fitZoom, y: rect.height / 2 - ((minY + maxY) / 2) * fitZoom });
+  }, [nodes]);
+
+  // Fit on first mount, and again whenever the graph goes from empty to populated
+  // (e.g. a live recording finishes processing) — but not on every filter/search
+  // change, which would otherwise yank the view around while typing.
+  const hasFitRef = useRef(false);
+  const prevCountRef = useRef(0);
+  useEffect(() => {
+    const shouldFit = !hasFitRef.current || (prevCountRef.current === 0 && nodes.length > 0);
+    prevCountRef.current = nodes.length;
+    if (nodes.length === 0 || !shouldFit) return;
+    hasFitRef.current = true;
+    fitToView();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes.length]);
+
   // Pan the newly-added node into view when "Auto-center on new node" is on (Settings).
   useEffect(() => {
     if (!autoCenter || !newNodeId) return;
@@ -395,7 +428,7 @@ const MiniMindMap = forwardRef<SVGSVGElement, {
             </filter>
           ))}
           <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-            <path d="M0,0 L0,6 L8,3 z" fill="rgba(139,92,246,0.6)" />
+            <path d="M0,0 L0,6 L8,3 z" fill="#7dd3fc" />
           </marker>
         </defs>
 
@@ -410,27 +443,39 @@ const MiniMindMap = forwardRef<SVGSVGElement, {
             const sx = s.x + 100, sy = s.y + 36;
             const tx = t.x + 100, ty = t.y + 36;
             const mx = (sx + tx) / 2;
+            const my = (sy + ty) / 2; // midpoint of this specific symmetric bezier === average of endpoints
             const path = `M ${sx} ${sy} C ${mx} ${sy}, ${mx} ${ty}, ${tx} ${ty}`;
             const isNew = e.target === newNodeId;
+            const label = e.label && e.label.length > 22 ? e.label.slice(0, 22) + "…" : e.label;
+            const labelWidth = label ? Math.max(36, label.length * 6.2 + 16) : 0;
             return (
-              <motion.path
-                key={e.id}
-                d={path}
-                fill="none"
-                stroke="url(#edgeGrad)"
-                strokeWidth="1.5"
-                strokeOpacity="0.5"
-                markerEnd="url(#arrow)"
-                initial={isNew ? { pathLength: 0, opacity: 0 } : { pathLength: 1, opacity: 1 }}
-                animate={{ pathLength: 1, opacity: 1 }}
-                transition={{ duration: 0.8, ease: "easeOut" }}
-              />
+              <g key={e.id}>
+                <motion.path
+                  d={path}
+                  fill="none"
+                  stroke="url(#edgeGrad)"
+                  strokeWidth="2.5"
+                  strokeOpacity="0.85"
+                  markerEnd="url(#arrow)"
+                  initial={isNew ? { pathLength: 0, opacity: 0 } : { pathLength: 1, opacity: 1 }}
+                  animate={{ pathLength: 1, opacity: 1 }}
+                  transition={{ duration: 0.8, ease: "easeOut" }}
+                />
+                {label && (
+                  <g transform={`translate(${mx - labelWidth / 2}, ${my - 9})`} pointerEvents="none">
+                    <rect width={labelWidth} height={18} rx={5} fill="#12172a" stroke="rgba(125,211,252,0.3)" strokeWidth="1" />
+                    <text x={labelWidth / 2} y={13} textAnchor="middle" fill="#e2e8f0" fontSize="10" fontFamily="Inter,sans-serif">
+                      {label}
+                    </text>
+                  </g>
+                )}
+              </g>
             );
           })}
           <defs>
             <linearGradient id="edgeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#6366f1" />
-              <stop offset="100%" stopColor="#8b5cf6" />
+              <stop offset="0%" stopColor="#7dd3fc" />
+              <stop offset="100%" stopColor="#38bdf8" />
             </linearGradient>
           </defs>
 
@@ -439,6 +484,7 @@ const MiniMindMap = forwardRef<SVGSVGElement, {
             const c = colors[node.type];
             const isSelected = selectedId === node.id;
             const isNew = newNodeId === node.id;
+            const isMain = node.type === "main"; // main topics render as an ellipse, everything else a rounded box
             return (
               <motion.g
                 key={node.id}
@@ -449,21 +495,39 @@ const MiniMindMap = forwardRef<SVGSVGElement, {
                 style={{ cursor: "pointer" }}
                 onClick={() => onNodeClick(node)}
               >
-                <motion.rect
-                  x={node.x} y={node.y} width={200} height={72}
-                  rx={14} ry={14}
-                  fill={c.bg}
-                  stroke={isSelected ? c.border : "rgba(255,255,255,0.1)"}
-                  strokeWidth={isSelected ? 1.5 : 1}
-                  filter={isNew || isSelected ? `url(#glow-${node.type})` : "none"}
-                  whileHover={{ filter: `url(#glow-${node.type})` }}
-                />
-                {isSelected && (
-                  <rect x={node.x} y={node.y} width={200} height={72} rx={14} ry={14}
-                    fill="none" stroke={c.border} strokeWidth="1.5" opacity="0.6" />
+                {isMain ? (
+                  <motion.ellipse
+                    cx={node.x + 100} cy={node.y + 36} rx={100} ry={36}
+                    fill={c.bg}
+                    stroke={isSelected ? c.border : "rgba(255,255,255,0.1)"}
+                    strokeWidth={isSelected ? 1.5 : 1}
+                    filter={isNew || isSelected ? `url(#glow-${node.type})` : "none"}
+                    whileHover={{ filter: `url(#glow-${node.type})` }}
+                  />
+                ) : (
+                  <motion.rect
+                    x={node.x} y={node.y} width={200} height={72}
+                    rx={14} ry={14}
+                    fill={c.bg}
+                    stroke={isSelected ? c.border : "rgba(255,255,255,0.1)"}
+                    strokeWidth={isSelected ? 1.5 : 1}
+                    filter={isNew || isSelected ? `url(#glow-${node.type})` : "none"}
+                    whileHover={{ filter: `url(#glow-${node.type})` }}
+                  />
                 )}
-                {/* Type indicator bar */}
-                <rect x={node.x + 12} y={node.y + 12} width={4} height={48} rx={2} fill={c.border} opacity={0.8} />
+                {isSelected && (
+                  isMain ? (
+                    <ellipse cx={node.x + 100} cy={node.y + 36} rx={100} ry={36}
+                      fill="none" stroke={c.border} strokeWidth="1.5" opacity="0.6" />
+                  ) : (
+                    <rect x={node.x} y={node.y} width={200} height={72} rx={14} ry={14}
+                      fill="none" stroke={c.border} strokeWidth="1.5" opacity="0.6" />
+                  )
+                )}
+                {/* Type indicator bar (skipped on ellipses — it would poke past the curve) */}
+                {!isMain && (
+                  <rect x={node.x + 12} y={node.y + 12} width={4} height={48} rx={2} fill={c.border} opacity={0.8} />
+                )}
                 {/* Title */}
                 <text x={node.x + 26} y={node.y + 30} fill="#f4f4f5" fontSize="11" fontWeight="600" fontFamily="Inter,sans-serif">
                   {node.title.length > 22 ? node.title.slice(0, 22) + "…" : node.title}
@@ -494,7 +558,7 @@ const MiniMindMap = forwardRef<SVGSVGElement, {
         {[
           { icon: <ZoomIn size={14} />,    action: () => setZoom(z => Math.min(2, z + 0.1)), active: false },
           { icon: <ZoomOut size={14} />,   action: () => setZoom(z => Math.max(0.3, z - 0.1)), active: false },
-          { icon: <Crosshair size={14} />, action: () => { setPan({ x: -200, y: -100 }); setZoom(0.72); }, active: false },
+          { icon: <Crosshair size={14} />, action: fitToView, active: false },
           { icon: <Grid3x3 size={14} />,   action: () => setShowGrid(g => !g), active: showGrid },
         ].map((btn, i) => (
           <button key={i} onClick={btn.action}
@@ -797,6 +861,74 @@ function ExportModal({ onClose, title, nodes, edges, svgRef }: {
   );
 }
 
+// ─── Study Questions Modal ──────────────────────────────────────────────────
+// Generated once per lecture (server-cached) from its structured mind map, not
+// a template — see /lectures/{id}/study.
+
+function StudyModal({ onClose, lectureId, lectureTitle }: { onClose: () => void; lectureId: string; lectureTitle: string }) {
+  const [questions, setQuestions] = useState<StudyQuestion[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [revealed, setRevealed] = useState<Set<number>>(new Set());
+
+  useEffect(() => {
+    let cancelled = false;
+    getStudyQuestions(lectureId)
+      .then(qs => { if (!cancelled) setQuestions(qs); })
+      .catch(err => { if (!cancelled) setError(err instanceof Error ? err.message : "Couldn't generate study questions."); });
+    return () => { cancelled = true; };
+  }, [lectureId]);
+
+  const toggleReveal = (i: number) => {
+    setRevealed(prev => { const next = new Set(prev); next.has(i) ? next.delete(i) : next.add(i); return next; });
+  };
+
+  return (
+    <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <motion.div className="relative w-full max-w-lg max-h-[80vh] rounded-2xl border border-white/12 overflow-hidden flex flex-col"
+        style={{ background: "rgba(18,18,22,0.98)", boxShadow: "0 24px 80px rgba(0,0,0,0.6)" }}
+        initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }}>
+        <div className="flex items-start justify-between px-6 py-4 border-b border-white/8 flex-shrink-0">
+          <div className="min-w-0">
+            <h3 className="text-base font-semibold text-white">Study Questions</h3>
+            <p className="text-xs text-zinc-500 mt-0.5 truncate">{lectureTitle}</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-zinc-500 hover:text-white hover:bg-white/6 transition-all flex-shrink-0"><X size={15} /></button>
+        </div>
+
+        <div className="p-6 space-y-3 overflow-y-auto">
+          {error && (
+            <p className="text-sm text-red-400 flex items-center gap-2"><AlertCircle size={14} /> {error}</p>
+          )}
+          {!error && questions === null && (
+            <div className="py-10 flex flex-col items-center gap-3 text-zinc-400 text-sm">
+              <Loader2 size={20} className="animate-spin" />
+              Generating questions from this lecture...
+            </div>
+          )}
+          {!error && questions !== null && questions.length === 0 && (
+            <p className="text-sm text-zinc-500 text-center py-10">No study questions could be generated for this lecture.</p>
+          )}
+          {questions?.map((q, i) => (
+            <div key={i} className="rounded-xl border border-white/8 bg-white/3 p-4">
+              <p className="text-sm text-zinc-200 leading-relaxed mb-2">{i + 1}. {q.question}</p>
+              {revealed.has(i) ? (
+                <p className="text-sm text-emerald-300 leading-relaxed">{q.answer}</p>
+              ) : (
+                <button onClick={() => toggleReveal(i)}
+                  className="text-xs font-medium text-indigo-400 hover:text-indigo-300 transition-all">
+                  Reveal answer
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 
 function AppSidebar({ page, onNavigate }: { page: Page; onNavigate: (p: Page) => void }) {
@@ -1000,7 +1132,7 @@ function LandingPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
           <span className="font-semibold text-slate-900 text-base">LectureLens</span>
         </div>
         <div className="flex items-center gap-6">
-          {["Features", "Accessibility", "Pricing"].map(l => (
+          {["Features", "Accessibility"].map(l => (
             <a key={l} href="#" className="text-sm text-slate-600 hover:text-slate-900 transition-colors">{l}</a>
           ))}
         </div>
@@ -1529,6 +1661,7 @@ function LivePage({ onImport }: { onImport: (lecture: ActiveLecture) => void }) 
   const [edges, setEdges] = useState<Edge[]>([]);
   const [selectedNode, setSelectedNode] = useState<MindNode | null>(null);
   const [showExport, setShowExport] = useState(false);
+  const [showStudy, setShowStudy] = useState(false);
   const [filter, setFilter] = useState<NodeType | "all">("all");
 
   const { autoCenter, notifications } = useSettings();
@@ -1715,12 +1848,20 @@ function LivePage({ onImport }: { onImport: (lecture: ActiveLecture) => void }) 
           ))}
         </div>
 
-        {/* Export button */}
+        {/* Export / Study buttons */}
         {nodes.length > 0 && (
-          <button onClick={() => setShowExport(true)}
-            className="absolute top-3 right-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 bg-zinc-900/80 backdrop-blur-md text-xs text-zinc-400 hover:text-white transition-all">
-            <Download size={12} /> Export
-          </button>
+          <div className="absolute top-3 right-3 flex items-center gap-1.5">
+            {lectureId && (
+              <button onClick={() => setShowStudy(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 bg-zinc-900/80 backdrop-blur-md text-xs text-zinc-400 hover:text-white transition-all">
+                <HelpCircle size={12} /> Study
+              </button>
+            )}
+            <button onClick={() => setShowExport(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 bg-zinc-900/80 backdrop-blur-md text-xs text-zinc-400 hover:text-white transition-all">
+              <Download size={12} /> Export
+            </button>
+          </div>
         )}
       </div>
 
@@ -1740,6 +1881,10 @@ function LivePage({ onImport }: { onImport: (lecture: ActiveLecture) => void }) 
 
       <AnimatePresence>
         {showExport && <ExportModal onClose={() => setShowExport(false)} title={title} nodes={nodes} edges={edges} svgRef={mapRef} />}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showStudy && lectureId && <StudyModal onClose={() => setShowStudy(false)} lectureId={lectureId} lectureTitle={title} />}
       </AnimatePresence>
     </div>
   );
@@ -2158,6 +2303,7 @@ function MindMapPage({ lectureId, title, nodes: sourceNodes, edges: sourceEdges,
   const [nodes, setNodes] = useState<MindNode[]>(sourceNodes);
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedNodeId ?? null);
   const [showExport, setShowExport] = useState(false);
+  const [showStudy, setShowStudy] = useState(false);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<NodeType | "all">("all");
   const { autoCenter } = useSettings();
@@ -2218,6 +2364,11 @@ function MindMapPage({ lectureId, title, nodes: sourceNodes, edges: sourceEdges,
               </button>
             ))}
           </div>
+          {lectureId && (
+            <button onClick={() => setShowStudy(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 text-xs text-zinc-400 hover:text-white transition-all">
+              <HelpCircle size={12} /> Study
+            </button>
+          )}
           <button onClick={() => setShowExport(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 text-xs text-zinc-400 hover:text-white transition-all">
             <Download size={12} /> Export
           </button>
@@ -2252,6 +2403,10 @@ function MindMapPage({ lectureId, title, nodes: sourceNodes, edges: sourceEdges,
 
       <AnimatePresence>
         {showExport && <ExportModal onClose={() => setShowExport(false)} title={title} nodes={nodes} edges={sourceEdges} svgRef={mapRef} />}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showStudy && lectureId && <StudyModal onClose={() => setShowStudy(false)} lectureId={lectureId} lectureTitle={title} />}
       </AnimatePresence>
     </div>
   );

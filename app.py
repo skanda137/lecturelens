@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from llm_structure import LectureMindMap
+from llm_structure import LectureMindMap, generate_study_questions
 from main import run_pipeline
 
 load_dotenv()
@@ -142,6 +142,31 @@ async def patch_node(lecture_id: str, node_id: str, update: NodeUpdate):
     if node is None:
         raise HTTPException(status_code=404, detail="Node not found.")
     return node
+
+
+@app.get("/lectures/{lecture_id}/study")
+async def get_study_questions(lecture_id: str):
+    lecture = db.get_lecture(lecture_id)
+    if lecture is None:
+        raise HTTPException(status_code=404, detail="Lecture not found.")
+
+    cached = db.get_cached_study_questions(lecture_id)
+    if cached is not None:
+        return {"questions": cached}
+
+    if not lecture["nodes"]:
+        return {"questions": []}
+
+    try:
+        result = generate_study_questions(lecture["lecture_title"], lecture["nodes"])
+        questions = [q.model_dump() for q in result.questions]
+    except Exception as e:
+        print(f"[API ERROR] study question generation failed: {e}")
+        detail = str(e) if DEBUG else "Couldn't generate study questions right now."
+        raise HTTPException(status_code=500, detail=detail)
+
+    db.save_study_questions(lecture_id, questions)
+    return {"questions": questions}
 
 
 @app.get("/stats")

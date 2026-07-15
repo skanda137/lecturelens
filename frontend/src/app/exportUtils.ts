@@ -32,7 +32,7 @@ export function downloadJson(title: string, nodes: AppMindNode[], edges: AppEdge
       bookmarked: !!n.bookmarked,
       notes: n.notes ?? null,
     })),
-    edges: edges.map(e => ({ id: e.id, source: e.source, target: e.target })),
+    edges: edges.map(e => ({ id: e.id, source: e.source, target: e.target, label: e.label ?? null })),
   };
   triggerDownload(
     new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }),

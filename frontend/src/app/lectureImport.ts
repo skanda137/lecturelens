@@ -129,6 +129,19 @@ export function listBookmarks(): Promise<BookmarkEntry[]> {
   return apiFetch<BookmarkEntry[]>("/bookmarks");
 }
 
+export interface StudyQuestion {
+  question: string;
+  answer: string;
+}
+
+/** Lazily generates (once) and caches a set of study questions for a lecture. */
+export async function getStudyQuestions(lectureId: string): Promise<StudyQuestion[]> {
+  const { questions } = await apiFetch<{ questions: StudyQuestion[] }>(
+    `/lectures/${encodeURIComponent(lectureId)}/study`
+  );
+  return questions;
+}
+
 // App-internal shapes (mirrors the types declared in App.tsx)
 export type AppNodeType = "main" | "subtopic" | "example" | "definition" | "question" | "important" | "note" | "insight";
 
@@ -150,6 +163,7 @@ export interface AppEdge {
   id: string;
   source: string;
   target: string;
+  label?: string;
 }
 
 const TYPE_MAP: Record<LectureNodeType, AppNodeType> = {
@@ -159,16 +173,19 @@ const TYPE_MAP: Record<LectureNodeType, AppNodeType> = {
   insight: "insight",
 };
 
-const LEVEL_X_STEP = 260;
+const LEVEL_X_STEP = 360; // gives edge-label boxes room between columns without overlapping node bodies
 const ROW_Y_STEP = 140;
 const START_X = 240;
 const CENTER_Y = 280;
 
 /**
  * Turns raw extraction JSON into positioned nodes + edges.
- * Layout: BFS from root node(s) (nodes with no incoming edge) so each
- * level of the graph becomes a column, matching how MiniMindMap expects
- * nodes to be laid out (parentId + x/y).
+ * Layout: a tidy tree (root(s) at the left, branches fanning right). Each
+ * node with children is centered over the vertical span of ITS OWN children,
+ * computed bottom-up — not placed in a row shared with every other node at
+ * the same depth. That per-parent centering is what makes it read as a tree
+ * with branches instead of a diagonal cascade where unrelated siblings from
+ * different parents end up sharing a column and their edges cross.
  */
 export function lectureJsonToGraph(json: LectureJSON): { nodes: AppMindNode[]; edges: AppEdge[] } {
   const incoming = new Set(json.edges.map(e => e.target));
@@ -182,36 +199,41 @@ export function lectureJsonToGraph(json: LectureJSON): { nodes: AppMindNode[]; e
     if (!parentOf.has(e.target)) parentOf.set(e.target, e.source);
   });
 
-  const level = new Map<string, number>();
-  const queue: string[] = [...rootIds];
-  rootIds.forEach(id => level.set(id, 0));
-  while (queue.length) {
-    const id = queue.shift()!;
-    const depth = level.get(id) ?? 0;
-    for (const childId of childrenOf.get(id) ?? []) {
-      if (!level.has(childId)) {
-        level.set(childId, depth + 1);
-        queue.push(childId);
-      }
-    }
-  }
-  // Any node unreachable from a root (disconnected) still gets placed.
-  json.nodes.forEach(n => { if (!level.has(n.id)) level.set(n.id, 0); });
-
-  const byLevel = new Map<number, string[]>();
-  json.nodes.forEach(n => {
-    const lv = level.get(n.id) ?? 0;
-    byLevel.set(lv, [...(byLevel.get(lv) ?? []), n.id]);
-  });
-
   const pos = new Map<string, { x: number; y: number }>();
-  byLevel.forEach((ids, lv) => {
-    const total = ids.length;
-    const startY = CENTER_Y - ((total - 1) * ROW_Y_STEP) / 2;
-    ids.forEach((id, i) => {
-      pos.set(id, { x: START_X + lv * LEVEL_X_STEP, y: startY + i * ROW_Y_STEP });
-    });
+  const placed = new Set<string>();
+  let leafCursor = 0;
+
+  const layout = (id: string, depth: number): number => {
+    placed.add(id);
+    const kids = (childrenOf.get(id) ?? []).filter(childId => !placed.has(childId));
+    let y: number;
+    if (kids.length === 0) {
+      y = leafCursor * ROW_Y_STEP;
+      leafCursor += 1;
+    } else {
+      const childYs = kids.map(childId => layout(childId, depth + 1));
+      y = (Math.min(...childYs) + Math.max(...childYs)) / 2;
+    }
+    pos.set(id, { x: START_X + depth * LEVEL_X_STEP, y });
+    return y;
+  };
+
+  rootIds.forEach(id => layout(id, 0));
+  // Any node unreachable from a root (disconnected / cyclic edge case) still gets placed.
+  json.nodes.forEach(n => {
+    if (!placed.has(n.id)) {
+      pos.set(n.id, { x: START_X, y: leafCursor * ROW_Y_STEP });
+      leafCursor += 1;
+    }
   });
+
+  // Shift the tree down so the topmost node sits at a fixed margin — never centered
+  // around CENTER_Y, which for a tall tree pushed the top rows to negative y and off
+  // the visible canvas (that's what was clipping edges/labels near the top).
+  const allY = [...pos.values()].map(p => p.y);
+  const TOP_MARGIN = 40;
+  const yOffset = allY.length ? TOP_MARGIN - Math.min(...allY) : 0;
+  pos.forEach(p => { p.y += yOffset; });
 
   const nodes: AppMindNode[] = json.nodes.map((n, i) => {
     const saved = n as Partial<LectureJSONNodeSaved>;
@@ -229,7 +251,7 @@ export function lectureJsonToGraph(json: LectureJSON): { nodes: AppMindNode[]; e
     };
   });
 
-  const edges: AppEdge[] = json.edges.map(e => ({ id: e.id, source: e.source, target: e.target }));
+  const edges: AppEdge[] = json.edges.map(e => ({ id: e.id, source: e.source, target: e.target, label: e.label }));
 
   return { nodes, edges };
 }
