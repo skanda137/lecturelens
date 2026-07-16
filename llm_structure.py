@@ -17,7 +17,20 @@ class MindMapNode(BaseModel):
     hierarchy_level: int = Field(
         description="The depth level in the mind map hierarchy (0 for main_topic, 1 for sub_topic, 2 for details)"
     )
-    summary: str = Field(description="1-2 highly descriptive sentences explaining the concept clearly")
+    summary: str = Field(
+        min_length=40,
+        description=(
+            "A thorough, fully self-contained explanation of this single concept — typically 4-8 "
+            "sentences for a real concept or mechanism (fewer, e.g. 2-3, is fine ONLY for a genuinely "
+            "trivial node like a single named part with nothing more to say). The reader cannot re-listen "
+            "to the audio and cannot ask a follow-up question, so this summary is their only source of "
+            "truth. Where there is enough source material, cover: (1) what the concept is, in plain terms, "
+            "(2) how or why it works / why it matters, (3) how it connects to neighboring concepts in the "
+            "map, and (4) a concrete example, analogy, or consequence drawn from the transcript. Define "
+            "jargon the first time it appears. Every sentence must add genuinely new information — never "
+            "pad length by restating the same point in different words."
+        )
+    )
 
 class MindMapEdge(BaseModel):
     id: str = Field(description="Unique identifier like edge_1, edge_2")
@@ -36,18 +49,60 @@ def transform_transcript_to_mindmap(raw_transcript: str) -> LectureMindMap:
     system_prompt = (
         "You are an expert educational content architect specialized in cognitive accessibility. "
         "Your job is to transform raw, messy spoken audio transcripts into a clean, highly structured "
-        "hierarchical mind map JSON object for hearing impaired but visually strong learners. "
+        "hierarchical mind map JSON object for a Deaf or hard-of-hearing student. "
+        "\n\n"
+        "CRITICAL CONTEXT: This student is learning ENTIRELY through the mind map you produce. They "
+        "cannot re-listen to the audio, cannot ask the lecturer a follow-up question, and have no other "
+        "source of clarification. If a concept is missing, too shallow, or ambiguous in your output, it "
+        "is permanently lost to this student. Every node must stand on its own and leave no room for doubt.\n\n"
         "Core Processing Rules:"
         "1. NOISE FILTERING: Strip out filler words, stumbles, and administrative remarks."
-        "2. TANGENTS: Capture relevant tangents as a single node typed 'note' or 'insight' linked via a 'tangent' edge."
-        "3. DEDUPICATING: Do not create duplicate nodes for the same topic. Synthesize returning info into the existing node."
-        "4. MINIMUM NODES: Extract at least 3 to 7 distinct nodes for a standard lecture segment."
-        "5. SUMMARY LIMIT: The summary field must not exceed 2-3 sentences."
+        "2. FULL COVERAGE, HIGH GRANULARITY: Extract EVERY distinct topic, subtopic, mechanism, named "
+        "component, definition, process step, and example mentioned in the transcript as its OWN node. "
+        "Do not compress multiple distinct ideas into a single node just to keep the node count low. "
+        "Prefer many small, precise nodes over a few broad ones — a rich lecture segment should typically "
+        "produce 15-40+ nodes (more for longer or denser transcripts), not the 3-7 of a shallow outline. "
+        "Sparse coverage is a failure condition. IMPORTANT: node count and summary depth are BOTH required "
+        "— do not sacrifice one for the other. Do not respond with only a handful of heavily-padded nodes "
+        "when the transcript clearly contains many distinct ideas; split them out instead."
+        "3. DEEP, SELF-CONTAINED SUMMARIES: Every node's summary must be a dense, substantive explanation "
+        "(see the summary field's own instructions) — never a 1-2 sentence blurb, and never padded with "
+        "repetitive restatements just to look longer. Write as if explaining to someone who will never hear "
+        "the original audio and cannot ask you anything else."
+        "4. CLARIFYING NOTES FOR DOUBT: Whenever the transcript glosses over something quickly, uses "
+        "similar-sounding or easily-confused terms, or describes a multi-step cause-and-effect the student "
+        "could easily misread, add a dedicated node typed 'note' that explicitly resolves the ambiguity or "
+        "common misconception, linked to the relevant concept via a 'clarifies' edge. Do not let potential "
+        "confusion pass through unaddressed."
+        "5. TANGENTS: Capture relevant tangents as a node typed 'note' or 'insight' linked via a 'tangent' edge."
+        "6. DEDUPLICATING: Do not create duplicate nodes for the same topic. Synthesize returning info into "
+        "the existing node's summary instead of creating a near-duplicate."
+        "\n\n"
+        "EXAMPLE of a good summary for a substantive concept node labeled 'Coolant Thermostat' — a summary "
+        "this shallow is UNACCEPTABLE: \"The thermostat regulates coolant temperature.\" Instead: \"The "
+        "thermostat is a valve that controls how much coolant flows back through the engine versus out to "
+        "the radiator. When the engine is cold, it stays closed so coolant recirculates locally and the "
+        "engine warms up faster, which matters because a cold engine burns fuel less efficiently and wears "
+        "parts out faster. Once coolant reaches a target temperature, the thermostat opens and redirects "
+        "flow to the radiator, where airflow pulls heat out of the liquid before it returns to the engine — "
+        "the same loop described in the Cooling System node. If a thermostat fails stuck closed the engine "
+        "overheats; if it fails stuck open the engine runs cold and less efficiently. A common point of "
+        "confusion: 'thermostat' here means a temperature-triggered valve, not a household thermostat.\" "
+        "Notice every sentence adds a new fact — mechanism, reasoning, connection, or failure case — nothing "
+        "is restated. Contrast that with a BAD, padded version for a simple node labeled 'Air Filter': "
+        "\"The air filter filters the air. It is an important part of the engine. The air filter's job is to "
+        "make sure the air is clean. This is a critical function for the engine's performance.\" — that is "
+        "four sentences with only one actual fact, repeated four ways. For a simple node like this, two "
+        "dense sentences (what it does + why it matters, e.g. mentioning what happens if it clogs) beat four "
+        "padded ones. Match summary length to how much the concept actually contains, but never let that be "
+        "an excuse to cut the total node count instead."
     )
 
     response = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
         response_model=LectureMindMap,
+        max_tokens=8000,
+        max_retries=3,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"### TRANSCRIPT START ###\n{raw_transcript}\n### TRANSCRIPT END ###"}
