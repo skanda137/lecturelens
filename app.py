@@ -33,6 +33,37 @@ ALLOWED_UPLOAD_EXTENSIONS = {
 }
 MAX_UPLOAD_BYTES = 500 * 1024 * 1024
 
+_RETRY_WAIT_RE = re.compile(r"try again in (?:(\d+)h)?(?:(\d+)m)?(?:([\d.]+)s)?")
+
+
+def _format_retry_wait(message: str) -> Optional[str]:
+    match = _RETRY_WAIT_RE.search(message)
+    if not match:
+        return None
+    hours = int(match.group(1) or 0)
+    minutes = int(match.group(2) or 0)
+    seconds = float(match.group(3) or 0)
+    total_minutes = hours * 60 + minutes + (1 if seconds > 0 else 0)
+    if total_minutes <= 0:
+        return "a minute"
+    if total_minutes < 60:
+        return f"about {total_minutes} minute{'s' if total_minutes != 1 else ''}"
+    h, m = divmod(total_minutes, 60)
+    if m == 0:
+        return f"about {h} hour{'s' if h != 1 else ''}"
+    return f"about {h}h {m}m"
+
+
+def _rate_limit_detail(exc: Exception) -> Optional[str]:
+    """Translates a Groq token-rate-limit error into an actionable message instead of a generic 500."""
+    text = str(exc)
+    if "rate_limit_exceeded" not in text:
+        return None
+    scope = "daily" if ("tokens per day" in text or "(TPD)" in text) else "per-minute"
+    base = f"The AI service has hit its {scope} usage limit."
+    wait = _format_retry_wait(text)
+    return f"{base} Please try again in {wait}." if wait else f"{base} Please try again later."
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -111,6 +142,9 @@ async def process_audio(file: UploadFile = File(...), duration_seconds: Optional
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         print(f"[API ERROR] {e}")
+        rate_limit_detail = _rate_limit_detail(e)
+        if rate_limit_detail:
+            raise HTTPException(status_code=429, detail=rate_limit_detail)
         detail = str(e) if DEBUG else "Internal server error while processing the file."
         raise HTTPException(status_code=500, detail=detail)
 
@@ -146,6 +180,9 @@ async def process_text(payload: TranscriptInput):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         print(f"[API ERROR] {e}")
+        rate_limit_detail = _rate_limit_detail(e)
+        if rate_limit_detail:
+            raise HTTPException(status_code=429, detail=rate_limit_detail)
         detail = str(e) if DEBUG else "Internal server error while processing the transcript."
         raise HTTPException(status_code=500, detail=detail)
 
@@ -199,6 +236,9 @@ async def get_study_questions(lecture_id: str):
         questions = [q.model_dump() for q in result.questions]
     except Exception as e:
         print(f"[API ERROR] study question generation failed: {e}")
+        rate_limit_detail = _rate_limit_detail(e)
+        if rate_limit_detail:
+            raise HTTPException(status_code=429, detail=rate_limit_detail)
         detail = str(e) if DEBUG else "Couldn't generate study questions right now."
         raise HTTPException(status_code=500, detail=detail)
 
