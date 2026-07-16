@@ -1684,7 +1684,7 @@ function LivePage({ onImport }: { onImport: (lecture: ActiveLecture) => void }) 
   const visibleNodes = nodes.filter(n => filter === "all" || n.type === filter);
 
   return (
-    <div className="flex-1 flex overflow-hidden relative">
+    <div className="flex-1 flex overflow-hidden relative bg-zinc-950">
       <div className="w-72 flex-shrink-0 border-r border-white/6 flex flex-col overflow-hidden">
         <div className="p-4 border-b border-white/6">
           <div className="flex items-center gap-2 mb-4">
@@ -2212,11 +2212,11 @@ function MindMapPage({ lectureId, title, nodes: sourceNodes, edges: sourceEdges,
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") { e.preventDefault(); searchRef.current?.focus(); }
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "e") { e.preventDefault(); setShowExport(true); }
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "f") { e.preventDefault(); e.stopPropagation(); searchRef.current?.focus(); }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "e") { e.preventDefault(); e.stopPropagation(); setShowExport(true); }
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    window.addEventListener("keydown", handler, { capture: true });
+    return () => window.removeEventListener("keydown", handler, { capture: true });
   }, []);
 
   const toggleBookmark = async (id: string) => {
@@ -2243,7 +2243,7 @@ function MindMapPage({ lectureId, title, nodes: sourceNodes, edges: sourceEdges,
   const selectedNode = selectedId ? nodes.find(n => n.id === selectedId) ?? null : null;
 
   return (
-    <div className="flex-1 flex overflow-hidden relative">
+    <div className="flex-1 flex overflow-hidden relative bg-zinc-950">
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex items-center gap-3 px-4 py-2.5 border-b border-white/6">
           <div className="flex items-center gap-1.5 flex-1">
@@ -2563,11 +2563,15 @@ function BookmarksPage({ onOpenBookmark }: { onOpenBookmark: (lectureId: string,
 }
 
 
+const isMacPlatform = typeof navigator !== "undefined" && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+const MOD_KEY = isMacPlatform ? "⌘" : "Ctrl";
+const SHIFT_KEY = isMacPlatform ? "⇧" : "Shift";
+
 function SettingsPage() {
   const { largeText, highContrast, reducedMotion, colorblindMode, autoCenter, notifications, setSetting } = useSettings();
 
   const Toggle = ({ value, onChange }: { value: boolean; onChange: () => void }) => (
-    <button onClick={onChange} className={`relative w-9 h-5 rounded-full transition-all ${value ? "bg-indigo-500" : "bg-white/10"}`}
+    <button onClick={onChange} className={`relative w-9 h-5 rounded-full transition-all ${value ? "bg-indigo-500" : "bg-gray-200"}`}
       role="switch" aria-checked={value}>
       <motion.div className="absolute top-0.5 w-4 h-4 bg-white rounded-full shadow"
         animate={{ left: value ? "calc(100% - 1.125rem)" : "0.125rem" }} transition={{ type: "spring", damping: 20, stiffness: 300 }} />
@@ -2597,20 +2601,20 @@ function SettingsPage() {
     <div className="flex-1 overflow-y-auto p-8">
       <div className="max-w-2xl mx-auto space-y-6">
         <div className="mb-8">
-          <h2 className="text-2xl font-bold text-white mb-2">Settings</h2>
-          <p className="text-zinc-400 text-sm">Customize LectureLens to your needs.</p>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Settings</h2>
+          <p className="text-gray-600 text-sm">Customize LectureLens to your needs.</p>
         </div>
 
         {sections.map((section, i) => (
           <motion.div key={i} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }}>
-            <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">{section.title}</p>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">{section.title}</p>
             <GlassCard>
-              <div className="divide-y divide-white/6">
+              <div className="divide-y divide-gray-100">
                 {section.settings.map((s, j) => (
                   <div key={j} className="flex items-center justify-between p-4">
                     <div>
-                      <p className="text-sm font-medium text-white">{s.label}</p>
-                      <p className="text-xs text-zinc-500 mt-0.5">{s.desc}</p>
+                      <p className="text-sm font-medium text-gray-900">{s.label}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">{s.desc}</p>
                     </div>
                     <Toggle value={s.value} onChange={s.onChange} />
                   </div>
@@ -2621,20 +2625,20 @@ function SettingsPage() {
         ))}
 
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
-          <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">Keyboard Shortcuts</p>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Keyboard Shortcuts</p>
           <GlassCard>
-            <div className="divide-y divide-white/6">
+            <div className="divide-y divide-gray-100">
               {[
-                { action: "Command palette",  keys: ["⌘", "K"] },
-                { action: "Search nodes (on Mind Map)", keys: ["⌘", "F"] },
-                { action: "Export map (on Mind Map)",   keys: ["⌘", "E"] },
-                { action: "Focus mode",       keys: ["⌘", "⇧", "F"] },
+                { action: "Command palette",  keys: [MOD_KEY, "K"] },
+                { action: "Search nodes (on Mind Map)", keys: [MOD_KEY, "F"] },
+                { action: "Export map (on Mind Map)",   keys: [MOD_KEY, "E"] },
+                { action: "Focus mode",       keys: [MOD_KEY, SHIFT_KEY, "F"] },
               ].map((s, j) => (
                 <div key={j} className="flex items-center justify-between px-4 py-3">
-                  <span className="text-sm text-zinc-300">{s.action}</span>
+                  <span className="text-sm text-gray-700 font-medium">{s.action}</span>
                   <div className="flex items-center gap-1">
                     {s.keys.map((k, ki) => (
-                      <kbd key={ki} className="px-2 py-0.5 rounded border border-white/12 bg-white/5 text-xs text-zinc-400 font-mono">{k}</kbd>
+                      <kbd key={ki} className="px-2 py-0.5 rounded border border-gray-300 bg-gray-50 text-xs text-gray-700 font-mono font-semibold">{k}</kbd>
                     ))}
                   </div>
                 </div>
@@ -2699,16 +2703,18 @@ function AppShell() {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
+        e.stopPropagation();
         setShowCommandPalette(p => !p);
       }
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "f") {
         e.preventDefault();
+        e.stopPropagation();
         setFocusMode(f => !f);
       }
       if (e.key === "Escape") setShowCommandPalette(false);
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    window.addEventListener("keydown", handler, { capture: true });
+    return () => window.removeEventListener("keydown", handler, { capture: true });
   }, []);
 
   const pageTitle: Record<Page, string> = {
