@@ -15,9 +15,9 @@ import {
   Trash2, AlertCircle, Loader2, Inbox, HelpCircle,
 } from "lucide-react";
 import {
-  lectureJsonToGraph, processLectureAudio, CARS_LECTURE,
+  lectureJsonToGraph, processLectureAudio, processLectureText, CARS_LECTURE,
   listLectures, getLecture, deleteLecture, updateNode, getStats, listBookmarks, getStudyQuestions,
-  type LectureJSON, type LectureSummary, type LectureDetail, type Stats, type BookmarkEntry, type LectureNodeType, type StudyQuestion,
+  type LectureSummary, type LectureDetail, type Stats, type BookmarkEntry, type LectureNodeType, type StudyQuestion,
 } from "./lectureImport";
 import { downloadJson, downloadMarkdown, downloadSvg, downloadPng, downloadPdf } from "./exportUtils";
 import { SettingsProvider, useSettings } from "./SettingsContext";
@@ -1820,6 +1820,7 @@ function UploadPage({ onImport, onNavigate }: { onImport: (lecture: ActiveLectur
   const [pendingTitle, setPendingTitle] = useState("");
   const [pendingLectureId, setPendingLectureId] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isTextSource, setIsTextSource] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleDrop = (e: React.DragEvent) => {
@@ -1843,6 +1844,7 @@ function UploadPage({ onImport, onNavigate }: { onImport: (lecture: ActiveLectur
   };
 
   const uploadRealFile = async (file: File) => {
+    setIsTextSource(false);
     setUploaded(file.name);
     setProcessing(true);
     setProgress(0);
@@ -1871,6 +1873,7 @@ function UploadPage({ onImport, onNavigate }: { onImport: (lecture: ActiveLectur
   };
 
   const loadSample = () => {
+    setIsTextSource(false);
     const graph = lectureJsonToGraph(CARS_LECTURE);
     setPendingGraph(graph);
     setPendingTitle(CARS_LECTURE.lecture_title);
@@ -1878,21 +1881,38 @@ function UploadPage({ onImport, onNavigate }: { onImport: (lecture: ActiveLectur
     simulateUpload("understanding_cars_lecture.mp3");
   };
 
-  const applyPastedJson = () => {
+  const applyPastedTranscript = async () => {
+    const transcript = pasteValue.trim();
+    if (transcript.length < 30) {
+      setPasteError("Paste a longer transcript (at least a few sentences) so there's enough to work with.");
+      return;
+    }
+    setPasteError(null);
+    setShowPaste(false);
+    setIsTextSource(true);
+    setUploaded("Pasted transcript");
+    setProcessing(true);
+    setProgress(0);
+    setPendingGraph(null);
+    setPendingLectureId(null);
+    setUploadError(null);
+
+    const t = setInterval(() => {
+      setProgress(p => (p < 90 ? p + 2 : p));
+    }, 200);
+
     try {
-      const parsed: LectureJSON = JSON.parse(pasteValue);
-      if (!Array.isArray(parsed.nodes) || !Array.isArray(parsed.edges)) {
-        throw new Error("JSON needs a nodes[] array and an edges[] array");
-      }
-      const graph = lectureJsonToGraph(parsed);
+      const data = await processLectureText(transcript);
+      const graph = lectureJsonToGraph(data);
       setPendingGraph(graph);
-      setPendingTitle(parsed.lecture_title || "Imported lecture");
-      setPendingLectureId(null);
-      setPasteError(null);
-      simulateUpload(`${parsed.lecture_title || "imported_lecture"}.json`);
-      setShowPaste(false);
+      setPendingTitle(data.lecture_title || "Imported lecture");
+      setPendingLectureId(data.id);
+      setProgress(100);
     } catch (err) {
-      setPasteError(err instanceof Error ? err.message : "Couldn't parse that JSON");
+      setUploadError(err instanceof Error ? err.message : "Couldn't process that transcript");
+    } finally {
+      clearInterval(t);
+      setProcessing(false);
     }
   };
 
@@ -1902,7 +1922,7 @@ function UploadPage({ onImport, onNavigate }: { onImport: (lecture: ActiveLectur
   };
 
   const steps = [
-    { label: "Transcribing audio",      done: progress > 30 },
+    { label: isTextSource ? "Reading transcript" : "Transcribing audio", done: progress > 30 },
     { label: "Extracting concepts",     done: progress > 55 },
     { label: "Building hierarchy",      done: progress > 75 },
     { label: "Generating mind map",     done: progress > 90 },
@@ -2032,8 +2052,8 @@ function UploadPage({ onImport, onNavigate }: { onImport: (lecture: ActiveLectur
                     <FileText size={20} className="text-blue-600" />
                   </div>
                   <div className="text-left">
-                    <p className="font-display text-gray-900 mb-1">Paste Extraction JSON</p>
-                    <p className="text-sm text-gray-600">Use structured data directly</p>
+                    <p className="font-display text-gray-900 mb-1">Paste Transcript</p>
+                    <p className="text-sm text-gray-600">Paste text from a video's transcript</p>
                   </div>
                 </div>
               </motion.button>
@@ -2045,16 +2065,16 @@ function UploadPage({ onImport, onNavigate }: { onImport: (lecture: ActiveLectur
                 animate={{ opacity: 1, y: 0 }}
                 className="rounded-2xl border border-gray-200 bg-white/70 backdrop-blur-sm p-6"
               >
-                <p className="text-sm text-gray-600 mb-3">Paste JSON with <code className="text-purple-600 font-mono text-xs">lecture_title</code>, <code className="text-purple-600 font-mono text-xs">nodes[]</code>, and <code className="text-purple-600 font-mono text-xs">edges[]</code>.</p>
-                <textarea 
-                  value={pasteValue} 
+                <p className="text-sm text-gray-600 mb-3">Paste the transcript text from a video or lecture recording, and we'll extract topics, build the hierarchy, and generate the mind map.</p>
+                <textarea
+                  value={pasteValue}
                   onChange={e => setPasteValue(e.target.value)}
-                  className="w-full h-40 rounded-xl border border-gray-300 bg-white text-sm text-gray-900 p-4 font-mono outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500/20 resize-none"
-                  placeholder='{"lecture_title": "...", "nodes": [...], "edges": [...]}' 
+                  className="w-full h-40 rounded-xl border border-gray-300 bg-white text-sm text-gray-900 p-4 outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500/20 resize-none"
+                  placeholder="Paste the video or lecture transcript here..."
                 />
                 {pasteError && <p className="text-sm text-red-600 mt-3 font-medium">{pasteError}</p>}
-                <motion.button 
-                  onClick={applyPastedJson}
+                <motion.button
+                  onClick={applyPastedTranscript}
                   className="w-full mt-4 py-3 rounded-xl text-sm font-semibold text-white transition-all"
                   style={{ background: "linear-gradient(135deg, #6D5EF7, #7C3AED)" }}
                   whileHover={{ scale: 1.02, boxShadow: "0 10px 30px rgba(109,94,247,0.2)" }}

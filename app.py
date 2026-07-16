@@ -11,8 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from llm_structure import LectureMindMap, generate_study_questions
-from main import run_pipeline
+from llm_structure import LectureMindMap, generate_study_questions, transform_transcript_to_mindmap
+from main import MIN_TRANSCRIPT_CHARS, run_pipeline
 
 load_dotenv()
 
@@ -59,6 +59,10 @@ class LectureMindMapResponse(LectureMindMap):
 class NodeUpdate(BaseModel):
     bookmarked: Optional[bool] = None
     notes: Optional[str] = None
+
+
+class TranscriptInput(BaseModel):
+    text: str
 
 
 def _safe_temp_path(filename: Optional[str]) -> str:
@@ -113,6 +117,37 @@ async def process_audio(file: UploadFile = File(...), duration_seconds: Optional
     finally:
         if os.path.exists(temp_file_path):
             os.remove(temp_file_path)
+
+
+@app.post("/process-text", response_model=LectureMindMapResponse)
+async def process_text(payload: TranscriptInput):
+    raw_text = payload.text.strip()
+
+    if len(raw_text) < MIN_TRANSCRIPT_CHARS:
+        raise HTTPException(
+            status_code=400,
+            detail="That transcript is too short. Paste a longer excerpt so there's enough to work with.",
+        )
+
+    try:
+        mind_map_data = transform_transcript_to_mindmap(raw_text)
+
+        lecture_id = db.create_lecture(mind_map_data, None, None)
+
+        return LectureMindMapResponse(
+            id=lecture_id,
+            duration_seconds=None,
+            **mind_map_data.model_dump(),
+        )
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        print(f"[API ERROR] {e}")
+        detail = str(e) if DEBUG else "Internal server error while processing the transcript."
+        raise HTTPException(status_code=500, detail=detail)
 
 
 @app.get("/lectures")

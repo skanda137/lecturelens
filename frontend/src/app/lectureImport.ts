@@ -91,6 +91,13 @@ export async function processLectureAudio(file: File, durationSeconds?: number):
   return apiFetch<LectureJSON & { id: string }>("/process-audio", { method: "POST", body: formData });
 }
 
+export function processLectureText(transcript: string): Promise<LectureJSON & { id: string }> {
+  return apiFetch<LectureJSON & { id: string }>("/process-text", {
+    method: "POST",
+    body: JSON.stringify({ text: transcript }),
+  });
+}
+
 export function listLectures(): Promise<LectureSummary[]> {
   return apiFetch<LectureSummary[]>("/lectures");
 }
