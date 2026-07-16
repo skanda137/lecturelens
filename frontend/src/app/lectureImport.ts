@@ -1,5 +1,6 @@
 
-export type LectureNodeType = "main_topic" | "sub_topic" | "note" | "insight";
+export type LectureNodeType =
+  | "main_topic" | "sub_topic" | "example" | "definition" | "question" | "important" | "note" | "insight";
 
 export interface LectureJSONNode {
   id: string;
@@ -167,15 +168,26 @@ export interface AppEdge {
 const TYPE_MAP: Record<LectureNodeType, AppNodeType> = {
   main_topic: "main",
   sub_topic: "subtopic",
+  example: "example",
+  definition: "definition",
+  question: "question",
+  important: "important",
   note: "note",
   insight: "insight",
 };
 
-const LEVEL_X_STEP = 360;
-const ROW_Y_STEP = 140;
-const START_X = 240;
-const CENTER_Y = 280;
+const RADIUS_STEP = 260;
+const RADIAL_CENTER_X = 1200;
+const RADIAL_CENTER_Y = 900;
+const NODE_HALF_W = 100;
+const NODE_HALF_H = 36;
 
+/**
+ * Lays nodes out as an organic radial mind map instead of a rigid left-to-right tree: each
+ * root gets an angular wedge of the circle sized to its subtree, and children fan out further
+ * from center within their parent's wedge — the classic hand-drawn mind-map shape rather than
+ * a corporate flowchart.
+ */
 export function lectureJsonToGraph(json: LectureJSON): { nodes: AppMindNode[]; edges: AppEdge[] } {
   const incoming = new Set(json.edges.map(e => e.target));
   const roots = json.nodes.filter(n => !incoming.has(n.id));
@@ -190,35 +202,63 @@ export function lectureJsonToGraph(json: LectureJSON): { nodes: AppMindNode[]; e
 
   const pos = new Map<string, { x: number; y: number }>();
   const placed = new Set<string>();
-  let leafCursor = 0;
 
-  const layout = (id: string, depth: number): number => {
-    placed.add(id);
-    const kids = (childrenOf.get(id) ?? []).filter(childId => !placed.has(childId));
-    let y: number;
-    if (kids.length === 0) {
-      y = leafCursor * ROW_Y_STEP;
-      leafCursor += 1;
-    } else {
-      const childYs = kids.map(childId => layout(childId, depth + 1));
-      y = (Math.min(...childYs) + Math.max(...childYs)) / 2;
-    }
-    pos.set(id, { x: START_X + depth * LEVEL_X_STEP, y });
-    return y;
+  const countLeaves = (id: string, seen: Set<string> = new Set()): number => {
+    if (seen.has(id)) return 1;
+    seen.add(id);
+    const kids = childrenOf.get(id) ?? [];
+    if (kids.length === 0) return 1;
+    return kids.reduce((sum, k) => sum + countLeaves(k, seen), 0);
   };
 
-  rootIds.forEach(id => layout(id, 0));
-  json.nodes.forEach(n => {
-    if (!placed.has(n.id)) {
-      pos.set(n.id, { x: START_X, y: leafCursor * ROW_Y_STEP });
-      leafCursor += 1;
-    }
+  // Multiple roots (a forest, e.g. after merging chunked extraction) fan out from a small base
+  // radius instead of colliding at dead center; a single root sits at the true center.
+  const baseRadius = rootIds.length > 1 ? RADIUS_STEP * 0.6 : 0;
+
+  const placeSubtree = (id: string, depth: number, angleStart: number, angleEnd: number) => {
+    if (placed.has(id)) return;
+    placed.add(id);
+    const angleMid = (angleStart + angleEnd) / 2;
+    const radius = baseRadius + depth * RADIUS_STEP;
+    pos.set(id, {
+      x: RADIAL_CENTER_X + radius * Math.cos(angleMid) - NODE_HALF_W,
+      y: RADIAL_CENTER_Y + radius * Math.sin(angleMid) - NODE_HALF_H,
+    });
+
+    const kids = (childrenOf.get(id) ?? []).filter(k => !placed.has(k));
+    if (kids.length === 0) return;
+    const weights = kids.map(k => countLeaves(k));
+    const totalWeight = weights.reduce((a, b) => a + b, 0) || kids.length;
+    let cursor = angleStart;
+    const span = angleEnd - angleStart;
+    kids.forEach((k, i) => {
+      const slice = span * (weights[i] / totalWeight);
+      placeSubtree(k, depth + 1, cursor, cursor + slice);
+      cursor += slice;
+    });
+  };
+
+  const rootWeights = rootIds.map(r => countLeaves(r));
+  const totalRootWeight = rootWeights.reduce((a, b) => a + b, 0) || rootIds.length || 1;
+  let rootCursor = -Math.PI / 2;
+  rootIds.forEach((r, i) => {
+    const slice = (2 * Math.PI) * (rootWeights[i] / totalRootWeight);
+    placeSubtree(r, 0, rootCursor, rootCursor + slice);
+    rootCursor += slice;
   });
 
-  const allY = [...pos.values()].map(p => p.y);
-  const TOP_MARGIN = 40;
-  const yOffset = allY.length ? TOP_MARGIN - Math.min(...allY) : 0;
-  pos.forEach(p => { p.y += yOffset; });
+  // Orphans unreachable from any root (shouldn't normally happen) get a simple grid fallback.
+  let fallbackIndex = 0;
+  json.nodes.forEach(n => {
+    if (!placed.has(n.id)) {
+      pos.set(n.id, {
+        x: RADIAL_CENTER_X + 600 + (fallbackIndex % 4) * 240,
+        y: RADIAL_CENTER_Y + 600 + Math.floor(fallbackIndex / 4) * 140,
+      });
+      placed.add(n.id);
+      fallbackIndex += 1;
+    }
+  });
 
   const nodes: AppMindNode[] = json.nodes.map((n, i) => {
     const saved = n as Partial<LectureJSONNodeSaved>;
@@ -227,8 +267,8 @@ export function lectureJsonToGraph(json: LectureJSON): { nodes: AppMindNode[]; e
       type: TYPE_MAP[n.type] ?? "note",
       title: n.label,
       summary: n.summary,
-      x: pos.get(n.id)?.x ?? START_X,
-      y: pos.get(n.id)?.y ?? CENTER_Y,
+      x: pos.get(n.id)?.x ?? RADIAL_CENTER_X,
+      y: pos.get(n.id)?.y ?? RADIAL_CENTER_Y,
       parentId: parentOf.get(n.id),
       timestamp: i * 4,
       bookmarked: saved.bookmarked,

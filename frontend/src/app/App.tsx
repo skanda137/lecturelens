@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, forwardRef, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback, forwardRef, useMemo, cloneElement } from "react";
 import { motion, AnimatePresence, MotionConfig } from "motion/react";
 import { toast } from "sonner";
 import { Toaster } from "./components/ui/sonner";
@@ -99,6 +99,44 @@ const NODE_ICONS: Record<NodeType, JSX.Element> = {
   insight:    <Sparkles size={14} />,
 };
 
+type NodeShapeSpec =
+  | { kind: "ellipse" }
+  | { kind: "rect"; rx: number }
+  | { kind: "path"; d: string };
+
+// Each node type gets a distinct silhouette (not just a color) so the map reads as a rich,
+// varied diagram rather than a grid of identical boxes.
+function getNodeShapeSpec(type: NodeType, x: number, y: number, w: number, h: number): NodeShapeSpec {
+  switch (type) {
+    case "main":
+      return { kind: "ellipse" };
+    case "insight":
+      return { kind: "rect", rx: h / 2 }; // pill
+    case "important":
+      return { kind: "rect", rx: 6 }; // sharp-cornered alert block
+    case "question":
+      return { kind: "rect", rx: 14 }; // speech-bubble base (gets a tail overlay)
+    case "definition": {
+      const c = 16; // cut-corner octagon, reads as a "defined term" chip
+      return {
+        kind: "path",
+        d: `M ${x + c},${y} L ${x + w - c},${y} L ${x + w},${y + c} L ${x + w},${y + h - c} `
+          + `L ${x + w - c},${y + h} L ${x + c},${y + h} L ${x},${y + h - c} L ${x},${y + c} Z`,
+      };
+    }
+    case "example": {
+      const n = 18; // ribbon / tag shape with a pointed right edge
+      return { kind: "path", d: `M ${x},${y} L ${x + w - n},${y} L ${x + w},${y + h / 2} L ${x + w - n},${y + h} L ${x},${y + h} Z` };
+    }
+    case "note": {
+      const f = 16; // sticky-note with a folded top-right corner
+      return { kind: "path", d: `M ${x},${y} L ${x + w - f},${y} L ${x + w},${y + f} L ${x + w},${y + h} L ${x},${y + h} Z` };
+    }
+    default:
+      return { kind: "rect", rx: 14 }; // sub_topic
+  }
+}
+
 const SEED_NODES: MindNode[] = [
   { id: "n1", type: "main",       title: "Machine Learning Fundamentals", summary: "Core principles of ML algorithms and statistical learning theory", x: 400, y: 280, timestamp: 0, transcriptSnippet: "Today we explore the foundational pillars of machine learning, starting with supervised learning..." },
   { id: "n2", type: "subtopic",   title: "Supervised Learning",           summary: "Training with labeled data to predict outcomes", x: 680, y: 160, parentId: "n1", timestamp: 4, transcriptSnippet: "Supervised learning requires labeled training data..." },
@@ -181,6 +219,10 @@ function formatRelativeDate(iso: string): string {
 const LECTURE_TYPE_TO_APP_TYPE: Record<LectureNodeType, NodeType> = {
   main_topic: "main",
   sub_topic: "subtopic",
+  example: "example",
+  definition: "definition",
+  question: "question",
+  important: "important",
   note: "note",
   insight: "insight",
 };
@@ -404,9 +446,11 @@ const MiniMindMap = forwardRef<SVGSVGElement, {
               <feMerge><feMergeNode in="coloredBlur" /><feMergeNode in="SourceGraphic" /></feMerge>
             </filter>
           ))}
-          <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-            <path d="M0,0 L0,6 L8,3 z" fill="#7dd3fc" />
-          </marker>
+          {Object.entries(colors).map(([type, c]) => (
+            <marker key={type} id={`arrow-${type}`} markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+              <path d="M0,0 L0,6 L8,3 z" fill={c.border} />
+            </marker>
+          ))}
         </defs>
 
         {showGrid && <rect width="100%" height="100%" fill="url(#dots)" />}
@@ -420,8 +464,16 @@ const MiniMindMap = forwardRef<SVGSVGElement, {
             const tx = t.x + 100, ty = t.y + 36;
             const mx = (sx + tx) / 2;
             const my = (sy + ty) / 2;
-            const path = `M ${sx} ${sy} C ${mx} ${sy}, ${mx} ${ty}, ${tx} ${ty}`;
+            // Bow the curve perpendicular to the source→target line so it reads naturally no
+            // matter which direction the radial layout sends it in (not just left-to-right).
+            const dx = tx - sx, dy = ty - sy;
+            const dist = Math.hypot(dx, dy) || 1;
+            const bow = Math.min(60, dist * 0.22);
+            const px = mx + (-dy / dist) * bow;
+            const py = my + (dx / dist) * bow;
+            const path = `M ${sx} ${sy} Q ${px} ${py}, ${tx} ${ty}`;
             const isNew = e.target === newNodeId;
+            const edgeColor = colors[s.type]?.border ?? "#7dd3fc";
             const label = e.label && e.label.length > 22 ? e.label.slice(0, 22) + "…" : e.label;
             const labelWidth = label ? Math.max(36, label.length * 6.2 + 16) : 0;
             return (
@@ -429,17 +481,17 @@ const MiniMindMap = forwardRef<SVGSVGElement, {
                 <motion.path
                   d={path}
                   fill="none"
-                  stroke="url(#edgeGrad)"
+                  stroke={edgeColor}
                   strokeWidth="2.5"
-                  strokeOpacity="0.85"
-                  markerEnd="url(#arrow)"
+                  strokeOpacity="0.75"
+                  markerEnd={`url(#arrow-${s.type})`}
                   initial={isNew ? { pathLength: 0, opacity: 0 } : { pathLength: 1, opacity: 1 }}
                   animate={{ pathLength: 1, opacity: 1 }}
                   transition={{ duration: 0.8, ease: "easeOut" }}
                 />
                 {label && (
-                  <g transform={`translate(${mx - labelWidth / 2}, ${my - 9})`} pointerEvents="none">
-                    <rect width={labelWidth} height={18} rx={5} fill="#12172a" stroke="rgba(125,211,252,0.3)" strokeWidth="1" />
+                  <g transform={`translate(${px - labelWidth / 2}, ${py - 9})`} pointerEvents="none">
+                    <rect width={labelWidth} height={18} rx={5} fill="#12172a" stroke={edgeColor} strokeOpacity="0.4" strokeWidth="1" />
                     <text x={labelWidth / 2} y={13} textAnchor="middle" fill="#e2e8f0" fontSize="10" fontFamily="Inter,sans-serif">
                       {label}
                     </text>
@@ -448,18 +500,21 @@ const MiniMindMap = forwardRef<SVGSVGElement, {
               </g>
             );
           })}
-          <defs>
-            <linearGradient id="edgeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#7dd3fc" />
-              <stop offset="100%" stopColor="#38bdf8" />
-            </linearGradient>
-          </defs>
 
           {nodes.map(node => {
             const c = colors[node.type];
             const isSelected = selectedId === node.id;
             const isNew = newNodeId === node.id;
             const isMain = node.type === "main";
+            const shape = getNodeShapeSpec(node.type, node.x, node.y, 200, 72);
+            const strokeW = node.type === "important" ? (isSelected ? 2.5 : 2) : (isSelected ? 1.5 : 1);
+            const shapeProps = {
+              fill: c.bg,
+              stroke: isSelected ? c.border : "rgba(255,255,255,0.1)",
+              strokeWidth: strokeW,
+              filter: isNew || isSelected ? `url(#glow-${node.type})` : "none",
+              whileHover: { filter: `url(#glow-${node.type})` },
+            };
             return (
               <motion.g
                 key={node.id}
@@ -470,43 +525,42 @@ const MiniMindMap = forwardRef<SVGSVGElement, {
                 style={{ cursor: "pointer" }}
                 onClick={() => onNodeClick(node)}
               >
-                {isMain ? (
-                  <motion.ellipse
-                    cx={node.x + 100} cy={node.y + 36} rx={100} ry={36}
-                    fill={c.bg}
-                    stroke={isSelected ? c.border : "rgba(255,255,255,0.1)"}
-                    strokeWidth={isSelected ? 1.5 : 1}
-                    filter={isNew || isSelected ? `url(#glow-${node.type})` : "none"}
-                    whileHover={{ filter: `url(#glow-${node.type})` }}
-                  />
+                {shape.kind === "ellipse" ? (
+                  <motion.ellipse cx={node.x + 100} cy={node.y + 36} rx={100} ry={36} {...shapeProps} />
+                ) : shape.kind === "rect" ? (
+                  <motion.rect x={node.x} y={node.y} width={200} height={72} rx={shape.rx} ry={shape.rx} {...shapeProps} />
                 ) : (
-                  <motion.rect
-                    x={node.x} y={node.y} width={200} height={72}
-                    rx={14} ry={14}
-                    fill={c.bg}
-                    stroke={isSelected ? c.border : "rgba(255,255,255,0.1)"}
-                    strokeWidth={isSelected ? 1.5 : 1}
-                    filter={isNew || isSelected ? `url(#glow-${node.type})` : "none"}
-                    whileHover={{ filter: `url(#glow-${node.type})` }}
-                  />
+                  <motion.path d={shape.d} {...shapeProps} />
                 )}
                 {isSelected && (
-                  isMain ? (
+                  shape.kind === "ellipse" ? (
                     <ellipse cx={node.x + 100} cy={node.y + 36} rx={100} ry={36}
                       fill="none" stroke={c.border} strokeWidth="1.5" opacity="0.6" />
-                  ) : (
-                    <rect x={node.x} y={node.y} width={200} height={72} rx={14} ry={14}
+                  ) : shape.kind === "rect" ? (
+                    <rect x={node.x} y={node.y} width={200} height={72} rx={shape.rx} ry={shape.rx}
                       fill="none" stroke={c.border} strokeWidth="1.5" opacity="0.6" />
+                  ) : (
+                    <path d={shape.d} fill="none" stroke={c.border} strokeWidth="1.5" opacity="0.6" />
                   )
                 )}
-                {!isMain && (
-                  <rect x={node.x + 12} y={node.y + 12} width={4} height={48} rx={2} fill={c.border} opacity={0.8} />
+                {node.type === "important" && (
+                  <path d={`M ${node.x},${node.y} L ${node.x + 20},${node.y} L ${node.x},${node.y + 20} Z`} fill={c.border} opacity={0.85} />
                 )}
-                <text x={node.x + 26} y={node.y + 30} fill="#f4f4f5" fontSize="11" fontWeight="600" fontFamily="Inter,sans-serif">
-                  {node.title.length > 22 ? node.title.slice(0, 22) + "…" : node.title}
+                {node.type === "note" && (
+                  <path d={`M ${node.x + 184},${node.y} L ${node.x + 200},${node.y + 16} L ${node.x + 184},${node.y + 16} Z`} fill={c.border} opacity={0.35} />
+                )}
+                {node.type === "question" && (
+                  <path d={`M ${node.x + 92},${node.y + 72} L ${node.x + 108},${node.y + 72} L ${node.x + 100},${node.y + 82} Z`}
+                    fill={c.bg} stroke={isSelected ? c.border : "rgba(255,255,255,0.1)"} strokeWidth="1" />
+                )}
+                <g transform={`translate(${node.x + 14}, ${node.y + (isMain ? 22 : 14)})`}>
+                  {cloneElement(NODE_ICONS[node.type], { color: c.border })}
+                </g>
+                <text x={node.x + 38} y={node.y + 30} fill="#f4f4f5" fontSize="11" fontWeight="600" fontFamily="Inter,sans-serif">
+                  {node.title.length > 20 ? node.title.slice(0, 20) + "…" : node.title}
                 </text>
-                <text x={node.x + 26} y={node.y + 46} fill="#a1a1aa" fontSize="9.5" fontFamily="Inter,sans-serif">
-                  {node.summary.length > 28 ? node.summary.slice(0, 28) + "…" : node.summary}
+                <text x={node.x + 38} y={node.y + 46} fill="#a1a1aa" fontSize="9.5" fontFamily="Inter,sans-serif">
+                  {node.summary.length > 24 ? node.summary.slice(0, 24) + "…" : node.summary}
                 </text>
                 {node.bookmarked && (
                   <text x={node.x + 182} y={node.y + 18} fill="#f59e0b" fontSize="12">★</text>

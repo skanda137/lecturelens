@@ -1,15 +1,38 @@
 import os
+import time
 from typing import List, Literal
 from pydantic import BaseModel, Field
 import instructor
 from groq import Groq
 from dotenv import load_dotenv
 load_dotenv()
+
+# Groq's free "on_demand" tier caps llama-3.3-70b-versatile at 12,000 tokens/minute (input +
+# output combined). A single long transcript can blow past that in one request, so anything
+# beyond CHUNK_CHAR_BUDGET characters (~2,000 input tokens) gets split into chunks that are each
+# processed as their own request, paced GROQ_TPM_COOLDOWN_SECONDS apart so the rolling per-minute
+# budget never gets exceeded, then merged into one mind map.
+CHUNK_CHAR_BUDGET = 8000
+GROQ_TPM_COOLDOWN_SECONDS = 65
 class MindMapNode(BaseModel):
     id: str = Field(description="Unique identifier like node_1, node_2")
     label: str = Field(description="Short text, 2-5 words maximizing structural clarity")
-    type: Literal["main_topic", "sub_topic", "note", "insight"] = Field(
-        description="The category classification of the concept node"
+    type: Literal[
+        "main_topic", "sub_topic", "example", "definition", "question", "important", "note", "insight"
+    ] = Field(
+        description=(
+            "The category classification of the concept node — use the full range, not just "
+            "main_topic/sub_topic for everything: "
+            "'main_topic' = a top-level pillar of the lecture; "
+            "'sub_topic' = a concept nested under a main topic; "
+            "'example' = a concrete illustration, case, or worked scenario; "
+            "'definition' = a term or piece of jargon being defined; "
+            "'question' = something the student should be able to answer to test understanding, "
+            "or a question the transcript itself poses; "
+            "'important' = a key takeaway, rule, or warning worth flagging above the rest; "
+            "'note' = a clarification that resolves potential ambiguity or confusion (see rule 4); "
+            "'insight' = a non-obvious realization, tangent, or deeper implication."
+        )
     )
     color_theme: str = Field(
         description="A Tailwind CSS color class suitable for this node type, e.g., 'bg-blue-500' for main, 'bg-emerald-500' for insights"
@@ -43,73 +66,153 @@ class LectureMindMap(BaseModel):
     nodes: List[MindMapNode]
     edges: List[MindMapEdge]
 
-def transform_transcript_to_mindmap(raw_transcript: str) -> LectureMindMap:
-    client = instructor.from_groq(Groq(api_key=os.environ.get("GROQ_API_KEY")))
-    
-    system_prompt = (
-        "You are an expert educational content architect specialized in cognitive accessibility. "
-        "Your job is to transform raw, messy spoken audio transcripts into a clean, highly structured "
-        "hierarchical mind map JSON object for a Deaf or hard-of-hearing student. "
-        "\n\n"
-        "CRITICAL CONTEXT: This student is learning ENTIRELY through the mind map you produce. They "
-        "cannot re-listen to the audio, cannot ask the lecturer a follow-up question, and have no other "
-        "source of clarification. If a concept is missing, too shallow, or ambiguous in your output, it "
-        "is permanently lost to this student. Every node must stand on its own and leave no room for doubt.\n\n"
-        "Core Processing Rules:"
-        "1. NOISE FILTERING: Strip out filler words, stumbles, and administrative remarks."
-        "2. FULL COVERAGE, HIGH GRANULARITY: Extract EVERY distinct topic, subtopic, mechanism, named "
-        "component, definition, process step, and example mentioned in the transcript as its OWN node. "
-        "Do not compress multiple distinct ideas into a single node just to keep the node count low. "
-        "Prefer many small, precise nodes over a few broad ones — a rich lecture segment should typically "
-        "produce 15-40+ nodes (more for longer or denser transcripts), not the 3-7 of a shallow outline. "
-        "Sparse coverage is a failure condition. IMPORTANT: node count and summary depth are BOTH required "
-        "— do not sacrifice one for the other. Do not respond with only a handful of heavily-padded nodes "
-        "when the transcript clearly contains many distinct ideas; split them out instead."
-        "3. DEEP, SELF-CONTAINED SUMMARIES: Every node's summary must be a dense, substantive explanation "
-        "(see the summary field's own instructions) — never a 1-2 sentence blurb, and never padded with "
-        "repetitive restatements just to look longer. Write as if explaining to someone who will never hear "
-        "the original audio and cannot ask you anything else."
-        "4. CLARIFYING NOTES FOR DOUBT: Whenever the transcript glosses over something quickly, uses "
-        "similar-sounding or easily-confused terms, or describes a multi-step cause-and-effect the student "
-        "could easily misread, add a dedicated node typed 'note' that explicitly resolves the ambiguity or "
-        "common misconception, linked to the relevant concept via a 'clarifies' edge. Do not let potential "
-        "confusion pass through unaddressed."
-        "5. TANGENTS: Capture relevant tangents as a node typed 'note' or 'insight' linked via a 'tangent' edge."
-        "6. DEDUPLICATING: Do not create duplicate nodes for the same topic. Synthesize returning info into "
-        "the existing node's summary instead of creating a near-duplicate."
-        "\n\n"
-        "EXAMPLE of a good summary for a substantive concept node labeled 'Coolant Thermostat' — a summary "
-        "this shallow is UNACCEPTABLE: \"The thermostat regulates coolant temperature.\" Instead: \"The "
-        "thermostat is a valve that controls how much coolant flows back through the engine versus out to "
-        "the radiator. When the engine is cold, it stays closed so coolant recirculates locally and the "
-        "engine warms up faster, which matters because a cold engine burns fuel less efficiently and wears "
-        "parts out faster. Once coolant reaches a target temperature, the thermostat opens and redirects "
-        "flow to the radiator, where airflow pulls heat out of the liquid before it returns to the engine — "
-        "the same loop described in the Cooling System node. If a thermostat fails stuck closed the engine "
-        "overheats; if it fails stuck open the engine runs cold and less efficiently. A common point of "
-        "confusion: 'thermostat' here means a temperature-triggered valve, not a household thermostat.\" "
-        "Notice every sentence adds a new fact — mechanism, reasoning, connection, or failure case — nothing "
-        "is restated. Contrast that with a BAD, padded version for a simple node labeled 'Air Filter': "
-        "\"The air filter filters the air. It is an important part of the engine. The air filter's job is to "
-        "make sure the air is clean. This is a critical function for the engine's performance.\" — that is "
-        "four sentences with only one actual fact, repeated four ways. For a simple node like this, two "
-        "dense sentences (what it does + why it matters, e.g. mentioning what happens if it clogs) beat four "
-        "padded ones. Match summary length to how much the concept actually contains, but never let that be "
-        "an excuse to cut the total node count instead."
-    )
+
+_BASE_SYSTEM_PROMPT = (
+    "You are an expert educational content architect specialized in cognitive accessibility. "
+    "Your job is to transform raw, messy spoken audio transcripts into a clean, highly structured "
+    "hierarchical mind map JSON object for a Deaf or hard-of-hearing student. "
+    "\n\n"
+    "CRITICAL CONTEXT: This student is learning ENTIRELY through the mind map you produce. They "
+    "cannot re-listen to the audio, cannot ask the lecturer a follow-up question, and have no other "
+    "source of clarification. If a concept is missing, too shallow, or ambiguous in your output, it "
+    "is permanently lost to this student. Every node must stand on its own and leave no room for doubt.\n\n"
+    "Core Processing Rules:"
+    "1. NOISE FILTERING: Strip out filler words, stumbles, and administrative remarks."
+    "2. FULL COVERAGE, HIGH GRANULARITY: Extract EVERY distinct topic, subtopic, mechanism, named "
+    "component, definition, process step, and example mentioned in the transcript as its OWN node. "
+    "Do not compress multiple distinct ideas into a single node just to keep the node count low. "
+    "Prefer many small, precise nodes over a few broad ones — a rich lecture segment should typically "
+    "produce 15-40+ nodes (more for longer or denser transcripts), not the 3-7 of a shallow outline. "
+    "Sparse coverage is a failure condition. IMPORTANT: node count and summary depth are BOTH required "
+    "— do not sacrifice one for the other. Do not respond with only a handful of heavily-padded nodes "
+    "when the transcript clearly contains many distinct ideas; split them out instead."
+    "3. DEEP, SELF-CONTAINED SUMMARIES: Every node's summary must be a dense, substantive explanation "
+    "(see the summary field's own instructions) — never a 1-2 sentence blurb, and never padded with "
+    "repetitive restatements just to look longer. Write as if explaining to someone who will never hear "
+    "the original audio and cannot ask you anything else."
+    "4. CLARIFYING NOTES FOR DOUBT: Whenever the transcript glosses over something quickly, uses "
+    "similar-sounding or easily-confused terms, or describes a multi-step cause-and-effect the student "
+    "could easily misread, add a dedicated node typed 'note' that explicitly resolves the ambiguity or "
+    "common misconception, linked to the relevant concept via a 'clarifies' edge. Do not let potential "
+    "confusion pass through unaddressed."
+    "5. TANGENTS: Capture relevant tangents as a node typed 'note' or 'insight' linked via a 'tangent' edge."
+    "6. DEDUPLICATING: Do not create duplicate nodes for the same topic. Synthesize returning info into "
+    "the existing node's summary instead of creating a near-duplicate."
+    "\n\n"
+    "EXAMPLE of a good summary for a substantive concept node labeled 'Coolant Thermostat' — a summary "
+    "this shallow is UNACCEPTABLE: \"The thermostat regulates coolant temperature.\" Instead: \"The "
+    "thermostat is a valve that controls how much coolant flows back through the engine versus out to "
+    "the radiator. When the engine is cold, it stays closed so coolant recirculates locally and the "
+    "engine warms up faster, which matters because a cold engine burns fuel less efficiently and wears "
+    "parts out faster. Once coolant reaches a target temperature, the thermostat opens and redirects "
+    "flow to the radiator, where airflow pulls heat out of the liquid before it returns to the engine — "
+    "the same loop described in the Cooling System node. If a thermostat fails stuck closed the engine "
+    "overheats; if it fails stuck open the engine runs cold and less efficiently. A common point of "
+    "confusion: 'thermostat' here means a temperature-triggered valve, not a household thermostat.\" "
+    "Notice every sentence adds a new fact — mechanism, reasoning, connection, or failure case — nothing "
+    "is restated. Contrast that with a BAD, padded version for a simple node labeled 'Air Filter': "
+    "\"The air filter filters the air. It is an important part of the engine. The air filter's job is to "
+    "make sure the air is clean. This is a critical function for the engine's performance.\" — that is "
+    "four sentences with only one actual fact, repeated four ways. For a simple node like this, two "
+    "dense sentences (what it does + why it matters, e.g. mentioning what happens if it clogs) beat four "
+    "padded ones. Match summary length to how much the concept actually contains, but never let that be "
+    "an excuse to cut the total node count instead."
+)
+
+
+def _split_transcript(raw_transcript: str, chunk_chars: int = CHUNK_CHAR_BUDGET) -> List[str]:
+    """Splits a long transcript into chunks near sentence/line boundaries so each chunk stays
+    within the model's per-minute token budget."""
+    text = raw_transcript.strip()
+    if len(text) <= chunk_chars:
+        return [text]
+
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = min(start + chunk_chars, len(text))
+        if end < len(text):
+            boundary = max(text.rfind("\n", start, end), text.rfind(". ", start, end))
+            if boundary > start + chunk_chars // 2:
+                end = boundary + 1
+        chunks.append(text[start:end].strip())
+        start = end
+    return [c for c in chunks if c]
+
+
+def _extract_chunk(
+    client: instructor.Instructor,
+    chunk_text: str,
+    chunk_index: int,
+    total_chunks: int,
+    prior_labels: List[str],
+) -> LectureMindMap:
+    position_note = ""
+    if total_chunks > 1:
+        position_note = (
+            f"\n\nNOTE: This is segment {chunk_index + 1} of {total_chunks} from one longer transcript, "
+            "split only because of length — treat it as a direct continuation of the same lecture, not a "
+            "new one. Extract nodes with the same full coverage and depth rules as normal."
+        )
+        if prior_labels:
+            position_note += (
+                "\nTopics already extracted from earlier segments (do not recreate these as new nodes; "
+                "only add genuinely new information as fresh nodes): " + ", ".join(prior_labels)
+            )
 
     response = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
         response_model=LectureMindMap,
-        max_tokens=8000,
+        max_tokens=4000,
         max_retries=3,
         messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"### TRANSCRIPT START ###\n{raw_transcript}\n### TRANSCRIPT END ###"}
+            {"role": "system", "content": _BASE_SYSTEM_PROMPT + position_note},
+            {"role": "user", "content": f"### TRANSCRIPT START ###\n{chunk_text}\n### TRANSCRIPT END ###"}
         ],
     )
-
     return response
+
+
+def _merge_chunk_results(results: List[LectureMindMap]) -> LectureMindMap:
+    title = next((r.lecture_title for r in results if r.lecture_title), results[0].lecture_title)
+    nodes: List[MindMapNode] = []
+    edges: List[MindMapEdge] = []
+
+    for chunk_idx, result in enumerate(results):
+        id_map = {}
+        for node in result.nodes:
+            new_id = f"c{chunk_idx}_{node.id}"
+            id_map[node.id] = new_id
+            nodes.append(node.model_copy(update={"id": new_id}))
+        for edge in result.edges:
+            if edge.source not in id_map or edge.target not in id_map:
+                continue
+            edges.append(edge.model_copy(update={
+                "id": f"c{chunk_idx}_{edge.id}",
+                "source": id_map[edge.source],
+                "target": id_map[edge.target],
+            }))
+
+    return LectureMindMap(lecture_title=title, nodes=nodes, edges=edges)
+
+
+def transform_transcript_to_mindmap(raw_transcript: str) -> LectureMindMap:
+    client = instructor.from_groq(Groq(api_key=os.environ.get("GROQ_API_KEY")))
+    chunks = _split_transcript(raw_transcript)
+
+    if len(chunks) == 1:
+        return _extract_chunk(client, chunks[0], 0, 1, [])
+
+    results: List[LectureMindMap] = []
+    prior_labels: List[str] = []
+    for i, chunk in enumerate(chunks):
+        if i > 0:
+            time.sleep(GROQ_TPM_COOLDOWN_SECONDS)
+        result = _extract_chunk(client, chunk, i, len(chunks), prior_labels)
+        results.append(result)
+        prior_labels.extend(n.label for n in result.nodes)
+
+    return _merge_chunk_results(results)
 
 
 class StudyQuestion(BaseModel):
